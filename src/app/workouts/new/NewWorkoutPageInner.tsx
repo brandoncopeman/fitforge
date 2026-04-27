@@ -81,77 +81,111 @@ export default function NewWorkoutPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "My Workout" }),
       })
-
+    
       if (!res.ok) {
         const text = await res.text()
         console.error("Failed to create workout:", res.status, text)
         setError("Failed to start workout. Please try again.")
         return
       }
-
+    
       const data = await res.json()
       setWorkoutId(data.id)
-
+    
       if (templateId) {
         const tRes = await fetch(`/api/templates/${templateId}`)
         const tData = await tRes.json()
         if (tData.template) {
           setWorkoutName(tData.template.name)
-          for (const te of tData.exercises) {
-            const weRes = await fetch("/api/workout-exercises", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                workout_id: data.id,
-                exercise_name: te.exercise_name,
-                muscle_group: te.muscle_group,
-                order_index: te.order_index,
-              }),
-            })
-            const weData = await weRes.json()
-
-            const lastRes = await fetch(`/api/exercises/last-sets?name=${encodeURIComponent(te.exercise_name)}`)
-            const lastSets = await lastRes.json()
-
-            const sets: SetEntry[] = []
-            for (let i = 0; i < (te.default_sets || 3); i++) {
-              const lastSet = Array.isArray(lastSets) ? lastSets[i] : null
-              const prefillReps = lastSet?.reps ?? te.default_reps ?? 8
-              const prefillWeight = lastSet?.weight_kg ?? te.default_weight_kg ?? 0
-
-              const setRes = await fetch("/api/exercise-sets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  workout_exercise_id: weData.id,
-                  set_number: i + 1,
-                  reps: prefillReps,
-                  weight_kg: prefillWeight,
-                }),
-              })
-              const setData = await setRes.json()
-              sets.push({
-                id: setData.id,
-                set_number: i + 1,
-                reps: prefillReps,
-                weight_kg: prefillWeight,
+    
+          // Fetch all last sessions + create all workout exercises in parallel
+          const [allWeData, allLastSets] = await Promise.all([
+            Promise.all(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              tData.exercises.map((te: any) =>
+                fetch("/api/workout-exercises", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    workout_id: data.id,
+                    exercise_name: te.exercise_name,
+                    muscle_group: te.muscle_group,
+                    order_index: te.order_index,
+                  }),
+                }).then(r => r.json())
+              )
+            ),
+            Promise.all(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              tData.exercises.map((te: any) =>
+                fetch(`/api/exercises/last-sets?name=${encodeURIComponent(te.exercise_name)}`)
+                  .then(r => r.json())
+                  .catch(() => [])
+              )
+            ),
+          ])
+    
+          // Create all sets across all exercises in parallel
+          const allSetPromises = tData.exercises.flatMap(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (te: any, i: number) => {
+              const weData = allWeData[i]
+              const lastSets = allLastSets[i]
+              return Array.from({ length: te.default_sets || 3 }, (_, j) => {
+                const lastSet = Array.isArray(lastSets) ? lastSets[j] : null
+                const prefillReps = lastSet?.reps ?? te.default_reps ?? 8
+                const prefillWeight = lastSet?.weight_kg ?? te.default_weight_kg ?? 0
+                return fetch("/api/exercise-sets", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    workout_exercise_id: weData.id,
+                    set_number: j + 1,
+                    reps: prefillReps,
+                    weight_kg: prefillWeight,
+                  }),
+                }).then(r => r.json()).then(setData => ({
+                  exerciseIndex: i,
+                  set: {
+                    id: setData.id,
+                    set_number: j + 1,
+                    reps: prefillReps,
+                    weight_kg: prefillWeight,
+                  } as SetEntry,
+                }))
               })
             }
-
-            setExercises(prev => [...prev, {
-              id: weData.id,
-              exercise_name: te.exercise_name,
-              muscle_group: te.muscle_group,
-              sets,
-              last_session: lastSets,
-            }])
-          }
+          )
+    
+          const allSetsResult = await Promise.all(allSetPromises)
+    
+          // Group sets by exercise index and sort
+          const setsByExercise: Record<number, SetEntry[]> = {}
+          allSetsResult.forEach(({ exerciseIndex, set }) => {
+            if (!setsByExercise[exerciseIndex]) setsByExercise[exerciseIndex] = []
+            setsByExercise[exerciseIndex].push(set)
+          })
+          Object.values(setsByExercise).forEach(sets =>
+            sets.sort((a, b) => a.set_number - b.set_number)
+          )
+    
+          // Set all exercises at once
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const allExercises = tData.exercises.map((te: any, i: number) => ({
+            id: allWeData[i].id,
+            exercise_name: te.exercise_name,
+            muscle_group: te.muscle_group,
+            sets: setsByExercise[i] || [],
+            last_session: allLastSets[i],
+          }))
+    
+          setExercises(allExercises)
         }
       }
     }
     init()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
   // Load custom exercises
   useEffect(() => {

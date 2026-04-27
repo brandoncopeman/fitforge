@@ -10,18 +10,24 @@ const TEAL = "#0d9488"
 const COLORS = ["#0d9488", "#0891b2", "#7c3aed", "#db2777", "#d97706", "#65a30d", "#dc2626"]
 
 type Props = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   workouts: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   volumeStats: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   personalRecords: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   oneRepMaxes: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   muscleGroups: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   weeklyVolume: any[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   totals: any
 }
 
 export default function StatsClient({
   workouts,
-  volumeStats,
   personalRecords,
   oneRepMaxes,
   muscleGroups,
@@ -32,18 +38,18 @@ export default function StatsClient({
 
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "records", label: "Personal Records" },
-    { id: "muscles", label: "Muscle Groups" },
+    { id: "records", label: "PRs" },
+    { id: "muscles", label: "Muscles" },
   ] as const
 
-  // Format weekly volume for chart
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const weeklyChartData = weeklyVolume.map((w: any) => ({
     week: new Date(w.week).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     volume: Math.round(Number(w.volume)),
     workouts: Number(w.workout_count),
   }))
 
-  // Format muscle groups for pie chart
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const muscleChartData = muscleGroups.map((m: any) => ({
     name: m.muscle_group,
     value: Number(m.total_sets),
@@ -60,9 +66,9 @@ export default function StatsClient({
         </div>
         <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
           <p className="text-neutral-400 text-xs mb-1">Total Volume</p>
-          <p className="text-3xl font-bold text-teal-400">
+          <p className="text-2xl font-bold text-teal-400">
             {Number(totals?.total_volume ?? 0).toLocaleString()}
-            <span className="text-lg text-neutral-400"> kg</span>
+            <span className="text-base text-neutral-400"> kg</span>
           </p>
         </div>
         <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
@@ -73,7 +79,7 @@ export default function StatsClient({
           <p className="text-neutral-400 text-xs mb-1">Time Trained</p>
           <p className="text-3xl font-bold text-white">
             {Math.round(Number(totals?.total_minutes ?? 0) / 60)}
-            <span className="text-lg text-neutral-400"> hrs</span>
+            <span className="text-base text-neutral-400"> hrs</span>
           </p>
         </div>
       </div>
@@ -99,16 +105,15 @@ export default function StatsClient({
       {activeTab === "overview" && (
         <div className="space-y-4">
 
-          {/* Weekly Volume Chart */}
-          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-            <p className="text-sm font-medium mb-4">Weekly Volume (last 12 weeks)</p>
+          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 overflow-hidden">
+            <p className="text-sm font-medium mb-3">Weekly Volume (last 12 weeks)</p>
             {weeklyChartData.length === 0 ? (
               <p className="text-neutral-500 text-sm text-center py-8">No data yet</p>
             ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={weeklyChartData}>
-                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#737373" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#737373" }} />
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={weeklyChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="week" tick={{ fontSize: 9, fill: "#737373" }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9, fill: "#737373" }} />
                   <Tooltip
                     contentStyle={{ backgroundColor: "#171717", border: "1px solid #262626", borderRadius: 8 }}
                     labelStyle={{ color: "#a3a3a3" }}
@@ -120,16 +125,15 @@ export default function StatsClient({
             )}
           </div>
 
-          {/* Workout frequency */}
-          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-            <p className="text-sm font-medium mb-4">Workouts per Week</p>
+          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 overflow-hidden">
+            <p className="text-sm font-medium mb-3">Workouts per Week</p>
             {weeklyChartData.length === 0 ? (
               <p className="text-neutral-500 text-sm text-center py-8">No data yet</p>
             ) : (
-              <ResponsiveContainer width="100%" height={150}>
-                <LineChart data={weeklyChartData}>
-                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#737373" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#737373" }} allowDecimals={false} />
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={weeklyChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="week" tick={{ fontSize: 9, fill: "#737373" }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9, fill: "#737373" }} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{ backgroundColor: "#171717", border: "1px solid #262626", borderRadius: 8 }}
                     labelStyle={{ color: "#a3a3a3" }}
@@ -141,15 +145,15 @@ export default function StatsClient({
             )}
           </div>
 
-          {/* Recent workouts */}
           <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
             <p className="text-sm font-medium mb-3">Recent Workouts</p>
             {workouts.length === 0 ? (
               <p className="text-neutral-500 text-sm">No workouts yet</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-0">
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {workouts.slice(0, 5).map((w: any) => (
-                  <div key={w.id} className="flex items-center justify-between py-2 border-t border-neutral-800 first:border-0">
+                  <div key={w.id} className="flex items-center justify-between py-2.5 border-t border-neutral-800 first:border-0">
                     <div>
                       <p className="text-sm font-medium">{w.name}</p>
                       <p className="text-xs text-neutral-500">
@@ -173,24 +177,24 @@ export default function StatsClient({
       {activeTab === "records" && (
         <div className="space-y-3">
 
-          {/* 1RM estimates */}
           <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
             <p className="text-sm font-medium mb-1">Estimated 1 Rep Max</p>
-            <p className="text-xs text-neutral-500 mb-3">Calculated using Epley formula</p>
+            <p className="text-xs text-neutral-500 mb-3">Epley formula</p>
             {oneRepMaxes.length === 0 ? (
-              <p className="text-neutral-500 text-sm">No data yet — log some sets with weight and reps</p>
+              <p className="text-neutral-500 text-sm">No data yet — log sets with weight and reps</p>
             ) : (
               <div className="space-y-0">
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {oneRepMaxes.slice(0, 10).map((r: any, i: number) => (
                   <div key={i} className="flex items-center justify-between py-3 border-t border-neutral-800 first:border-0">
-                    <div>
-                      <p className="text-sm font-medium capitalize">{r.exercise_name}</p>
+                    <div className="flex-1 min-w-0 pr-3">
+                      <p className="text-sm font-medium capitalize truncate">{r.exercise_name}</p>
                       <p className="text-xs text-teal-400 capitalize">{r.muscle_group}</p>
                       <p className="text-xs text-neutral-500 mt-0.5">
-                        Best set: {r.best_weight}kg × {r.best_reps} reps
+                        {r.best_weight}kg × {r.best_reps}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex-shrink-0">
                       <p className="text-xl font-bold text-white">
                         {Math.round(Number(r.estimated_1rm))}
                         <span className="text-sm text-neutral-400"> kg</span>
@@ -203,20 +207,20 @@ export default function StatsClient({
             )}
           </div>
 
-          {/* Heaviest lifts */}
           <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
             <p className="text-sm font-medium mb-3">Heaviest Lifts</p>
             {personalRecords.length === 0 ? (
               <p className="text-neutral-500 text-sm">No data yet</p>
             ) : (
               <div className="space-y-0">
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {personalRecords.map((r: any, i: number) => (
                   <div key={i} className="flex items-center justify-between py-3 border-t border-neutral-800 first:border-0">
-                    <div>
-                      <p className="text-sm font-medium capitalize">{r.exercise_name}</p>
+                    <div className="flex-1 min-w-0 pr-3">
+                      <p className="text-sm font-medium capitalize truncate">{r.exercise_name}</p>
                       <p className="text-xs text-teal-400 capitalize">{r.muscle_group}</p>
                     </div>
-                    <p className="text-lg font-bold text-white">
+                    <p className="text-lg font-bold text-white flex-shrink-0">
                       {r.max_weight}
                       <span className="text-sm text-neutral-400"> kg</span>
                     </p>
@@ -232,23 +236,23 @@ export default function StatsClient({
       {activeTab === "muscles" && (
         <div className="space-y-4">
 
-          {/* Pie chart */}
-          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
+          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 overflow-hidden">
             <p className="text-sm font-medium mb-4">Sets by Muscle Group</p>
             {muscleChartData.length === 0 ? (
               <p className="text-neutral-500 text-sm text-center py-8">No data yet</p>
             ) : (
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width="50%" height={200}>
+              <div className="flex items-center gap-3">
+                <ResponsiveContainer width="45%" height={160}>
                   <PieChart>
                     <Pie
                       data={muscleChartData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
+                      innerRadius={40}
+                      outerRadius={65}
                       dataKey="value"
                     >
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                       {muscleChartData.map((_: any, index: number) => (
                         <Cell key={index} fill={COLORS[index % COLORS.length]} />
                       ))}
@@ -259,12 +263,13 @@ export default function StatsClient({
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="flex-1 space-y-1">
+                <div className="flex-1 space-y-1.5">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   {muscleChartData.map((m: any, i: number) => (
                     <div key={i} className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                      <span className="text-xs text-neutral-300 capitalize">{m.name}</span>
-                      <span className="text-xs text-neutral-500 ml-auto">{m.value} sets</span>
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                      <span className="text-xs text-neutral-300 capitalize truncate">{m.name}</span>
+                      <span className="text-xs text-neutral-500 ml-auto flex-shrink-0">{m.value}</span>
                     </div>
                   ))}
                 </div>
@@ -272,16 +277,15 @@ export default function StatsClient({
             )}
           </div>
 
-          {/* Bar chart */}
-          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-            <p className="text-sm font-medium mb-4">Training Volume by Muscle</p>
+          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 overflow-hidden">
+            <p className="text-sm font-medium mb-3">Volume by Muscle</p>
             {muscleChartData.length === 0 ? (
               <p className="text-neutral-500 text-sm text-center py-8">No data yet</p>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={muscleChartData} layout="vertical">
-                  <XAxis type="number" tick={{ fontSize: 10, fill: "#737373" }} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: "#737373" }} width={80} />
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={muscleChartData} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <XAxis type="number" tick={{ fontSize: 9, fill: "#737373" }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: "#737373" }} width={70} />
                   <Tooltip
                     contentStyle={{ backgroundColor: "#171717", border: "1px solid #262626", borderRadius: 8 }}
                     itemStyle={{ color: "#fff" }}
