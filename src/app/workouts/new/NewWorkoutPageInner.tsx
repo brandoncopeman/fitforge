@@ -343,10 +343,24 @@ export default function NewWorkoutPageInner({
     if (!exercise) return
     const setNumber = exercise.sets.length + 1
     const lastSet = exercise.sets[exercise.sets.length - 1]
-
+  
     const prefillReps = Number(lastSet?.reps) || 8
     const prefillWeight = Number(lastSet?.weight_kg) || 0
-
+    const tempId = `temp-set-${Date.now()}`
+  
+    // Update UI instantly
+    setExercises(prev => prev.map(e =>
+      e.id === workoutExerciseId
+        ? { ...e, sets: [...e.sets, {
+            id: tempId,
+            set_number: setNumber,
+            reps: prefillReps,
+            weight_kg: prefillWeight,
+          }]}
+        : e
+    ))
+  
+    // Save to DB in background and swap temp ID for real ID
     const res = await fetch("/api/exercise-sets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -358,15 +372,10 @@ export default function NewWorkoutPageInner({
       }),
     })
     const data = await res.json()
-
+  
     setExercises(prev => prev.map(e =>
       e.id === workoutExerciseId
-        ? { ...e, sets: [...e.sets, {
-            id: data.id,
-            set_number: setNumber,
-            reps: prefillReps,
-            weight_kg: prefillWeight,
-          }]}
+        ? { ...e, sets: e.sets.map(s => s.id === tempId ? { ...s, id: data.id } : s) }
         : e
     ))
   }
@@ -419,11 +428,17 @@ export default function NewWorkoutPageInner({
   }
 
   async function flushSaves() {
+    // Only save sets that have pending timers (not yet saved)
     const promises: Promise<Response>[] = []
     exercises.forEach(exercise => {
       exercise.sets.forEach(set => {
+        // Skip temp IDs that haven't been saved to DB yet
+        if (set.id.startsWith("temp-")) return
+        
         const weightKey = `${set.id}-weight_kg`
         const repsKey = `${set.id}-reps`
+        const hasPending = saveTimers.current[weightKey] || saveTimers.current[repsKey]
+        
         if (saveTimers.current[weightKey]) {
           clearTimeout(saveTimers.current[weightKey])
           delete saveTimers.current[weightKey]
@@ -432,51 +447,58 @@ export default function NewWorkoutPageInner({
           clearTimeout(saveTimers.current[repsKey])
           delete saveTimers.current[repsKey]
         }
-        promises.push(
-          fetch(`/api/exercise-sets/${set.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              reps: Number(set.reps) || 0,
-              weight_kg: Number(set.weight_kg) || 0,
-            }),
-          })
-        )
+  
+        // Only call API if there was a pending save
+        if (hasPending) {
+          promises.push(
+            fetch(`/api/exercise-sets/${set.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reps: Number(set.reps) || 0,
+                weight_kg: Number(set.weight_kg) || 0,
+              }),
+            })
+          )
+        }
       })
     })
     await Promise.all(promises)
   }
-
+  
   async function finishWorkout() {
     if (!workoutId) return
     setFinishing(true)
     setError("")
     const durationMinutes = Math.max(1, Math.floor(elapsed / 60))
-    try {
-      await flushSaves()
-
-      if (templateId) {
-        const tRes = await fetch(`/api/templates/${templateId}`)
-        const tData = await tRes.json()
-        if (tData.exercises) {
-          await Promise.all(
-            exercises.map(async (exercise) => {
-              const templateExercise = tData.exercises.find(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (te: any) => te.exercise_name.toLowerCase() === exercise.exercise_name.toLowerCase()
+  
+    // Fire and forget — don't wait for these
+    flushSaves()
+  
+    // Update template set counts in background
+    if (templateId) {
+      fetch(`/api/templates/${templateId}`)
+        .then(r => r.json())
+        .then(tData => {
+          if (tData.exercises) {
+            exercises.forEach(exercise => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const te = tData.exercises.find((t: any) =>
+                t.exercise_name.toLowerCase() === exercise.exercise_name.toLowerCase()
               )
-              if (templateExercise && exercise.sets.length !== templateExercise.default_sets) {
-                await fetch(`/api/template-exercises/${templateExercise.id}`, {
+              if (te && exercise.sets.length !== te.default_sets) {
+                fetch(`/api/template-exercises/${te.id}`, {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ default_sets: exercise.sets.length }),
                 })
               }
             })
-          )
-        }
-      }
-
+          }
+        })
+    }
+  
+    try {
       await fetch(`/api/workouts/${workoutId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
