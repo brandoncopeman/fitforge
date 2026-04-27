@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 
 type Exercise = {
   id: string
@@ -28,15 +28,34 @@ type WorkoutExercise = {
   last_session?: { weight_kg: number; reps: number; set_number: number }[]
 }
 
+type TemplateExerciseData = {
+  exercise_name: string
+  muscle_group: string
+  order_index: number
+  default_sets: number
+  default_reps: number
+  default_weight_kg: number
+}
+
+type TemplateData = {
+  templateName: string
+  exercises: TemplateExerciseData[]
+  lastSetsByExercise: Record<string, { set_number: number; weight_kg: number; reps: number }[]>
+} | null
+
 const BODY_PARTS = ["back", "cardio", "chest", "lower arms", "lower legs", "neck", "shoulders", "upper arms", "upper legs", "waist"]
 
-export default function NewWorkoutPageInner() {
+export default function NewWorkoutPageInner({
+  templateId,
+  templateData,
+}: {
+  templateId: string | null
+  templateData: TemplateData
+}) {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const templateId = searchParams.get("template")
 
   const [workoutId, setWorkoutId] = useState<string | null>(null)
-  const [workoutName, setWorkoutName] = useState("My Workout")
+  const [workoutName, setWorkoutName] = useState(templateData?.templateName || "My Workout")
   const [exercises, setExercises] = useState<WorkoutExercise[]>([])
   const [startTime] = useState(() => Date.now())
   const [elapsed, setElapsed] = useState(0)
@@ -44,7 +63,6 @@ export default function NewWorkoutPageInner() {
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState("")
 
-  // Search panel state
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Exercise[]>([])
@@ -53,13 +71,11 @@ export default function NewWorkoutPageInner() {
   const [bodyPartExercises, setBodyPartExercises] = useState<Exercise[]>([])
   const [loadingBodyPart] = useState(false)
 
-  // Custom exercise state
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customName, setCustomName] = useState("")
   const [customMuscle, setCustomMuscle] = useState("")
   const [customExercises, setCustomExercises] = useState<{ id: string; name: string; muscle_group: string }[]>([])
 
-  // Rest timer state
   const [restDuration, setRestDuration] = useState(120)
   const [restRemaining, setRestRemaining] = useState<number | null>(null)
   const [showRestPicker, setShowRestPicker] = useState(false)
@@ -70,7 +86,6 @@ export default function NewWorkoutPageInner() {
   const initialized = useRef(false)
   const isDragging = useRef(false)
 
-  // Create workout on mount, optionally loading a template
   useEffect(() => {
     if (initialized.current) return
     initialized.current = true
@@ -79,122 +94,97 @@ export default function NewWorkoutPageInner() {
       const res = await fetch("/api/workouts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "My Workout" }),
+        body: JSON.stringify({ name: templateData?.templateName || "My Workout" }),
       })
-    
+
       if (!res.ok) {
         const text = await res.text()
         console.error("Failed to create workout:", res.status, text)
         setError("Failed to start workout. Please try again.")
         return
       }
-    
+
       const data = await res.json()
       setWorkoutId(data.id)
-    
-      if (templateId) {
-        const tRes = await fetch(`/api/templates/${templateId}`)
-        const tData = await tRes.json()
-        if (tData.template) {
-          setWorkoutName(tData.template.name)
-    
-          // Fetch all last sessions + create all workout exercises in parallel
-          const [allWeData, allLastSets] = await Promise.all([
-            Promise.all(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              tData.exercises.map((te: any) =>
-                fetch("/api/workout-exercises", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    workout_id: data.id,
-                    exercise_name: te.exercise_name,
-                    muscle_group: te.muscle_group,
-                    order_index: te.order_index,
-                  }),
-                }).then(r => r.json())
-              )
-            ),
-            Promise.all(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              tData.exercises.map((te: any) =>
-                fetch(`/api/exercises/last-sets?name=${encodeURIComponent(te.exercise_name)}`)
-                  .then(r => r.json())
-                  .catch(() => [])
-              )
-            ),
-          ])
-    
-          // Create all sets across all exercises in parallel
-          const allSetPromises = tData.exercises.flatMap(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (te: any, i: number) => {
-              const weData = allWeData[i]
-              const lastSets = allLastSets[i]
-              return Array.from({ length: te.default_sets || 3 }, (_, j) => {
-                const lastSet = Array.isArray(lastSets) ? lastSets[j] : null
-                const prefillReps = lastSet?.reps ?? te.default_reps ?? 8
-                const prefillWeight = lastSet?.weight_kg ?? te.default_weight_kg ?? 0
-                return fetch("/api/exercise-sets", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    workout_exercise_id: weData.id,
-                    set_number: j + 1,
-                    reps: prefillReps,
-                    weight_kg: prefillWeight,
-                  }),
-                }).then(r => r.json()).then(setData => ({
-                  exerciseIndex: i,
-                  set: {
-                    id: setData.id,
-                    set_number: j + 1,
-                    reps: prefillReps,
-                    weight_kg: prefillWeight,
-                  } as SetEntry,
-                }))
-              })
-            }
+
+      if (templateData && templateId) {
+        // Create all workout exercises in parallel
+        const allWeData = await Promise.all(
+          templateData.exercises.map(te =>
+            fetch("/api/workout-exercises", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                workout_id: data.id,
+                exercise_name: te.exercise_name,
+                muscle_group: te.muscle_group,
+                order_index: te.order_index,
+              }),
+            }).then(r => r.json())
           )
-    
-          const allSetsResult = await Promise.all(allSetPromises)
-    
-          // Group sets by exercise index and sort
-          const setsByExercise: Record<number, SetEntry[]> = {}
-          allSetsResult.forEach(({ exerciseIndex, set }) => {
-            if (!setsByExercise[exerciseIndex]) setsByExercise[exerciseIndex] = []
-            setsByExercise[exerciseIndex].push(set)
+        )
+
+        // Create all sets in parallel
+        const allSetPromises = templateData.exercises.flatMap((te, i) => {
+          const weData = allWeData[i]
+          const lastSets = templateData.lastSetsByExercise[te.exercise_name] || []
+          return Array.from({ length: te.default_sets || 3 }, (_, j) => {
+            const lastSet = lastSets[j] || null
+            const prefillReps = lastSet?.reps ?? te.default_reps ?? 8
+            const prefillWeight = lastSet?.weight_kg ?? te.default_weight_kg ?? 0
+            return fetch("/api/exercise-sets", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                workout_exercise_id: weData.id,
+                set_number: j + 1,
+                reps: prefillReps,
+                weight_kg: prefillWeight,
+              }),
+            }).then(r => r.json()).then(setData => ({
+              exerciseIndex: i,
+              set: {
+                id: setData.id,
+                set_number: j + 1,
+                reps: prefillReps,
+                weight_kg: prefillWeight,
+              } as SetEntry,
+            }))
           })
-          Object.values(setsByExercise).forEach(sets =>
-            sets.sort((a, b) => a.set_number - b.set_number)
-          )
-    
-          // Set all exercises at once
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const allExercises = tData.exercises.map((te: any, i: number) => ({
-            id: allWeData[i].id,
-            exercise_name: te.exercise_name,
-            muscle_group: te.muscle_group,
-            sets: setsByExercise[i] || [],
-            last_session: allLastSets[i],
-          }))
-    
-          setExercises(allExercises)
-        }
+        })
+
+        const allSetsResult = await Promise.all(allSetPromises)
+
+        const setsByExercise: Record<number, SetEntry[]> = {}
+        allSetsResult.forEach(({ exerciseIndex, set }) => {
+          if (!setsByExercise[exerciseIndex]) setsByExercise[exerciseIndex] = []
+          setsByExercise[exerciseIndex].push(set)
+        })
+        Object.values(setsByExercise).forEach(sets =>
+          sets.sort((a, b) => a.set_number - b.set_number)
+        )
+
+        const allExercises = templateData.exercises.map((te, i) => ({
+          id: allWeData[i].id,
+          exercise_name: te.exercise_name,
+          muscle_group: te.muscle_group,
+          sets: setsByExercise[i] || [],
+          last_session: templateData.lastSetsByExercise[te.exercise_name] || [],
+        }))
+
+        setExercises(allExercises)
       }
     }
     init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Load custom exercises
   useEffect(() => {
     fetch("/api/custom-exercises").then(r => r.json()).then(data => {
       if (Array.isArray(data)) setCustomExercises(data)
     })
   }, [])
 
-  // Workout timer
   useEffect(() => {
     const interval = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000)
     return () => clearInterval(interval)
@@ -206,7 +196,6 @@ export default function NewWorkoutPageInner() {
     return `${m}:${s}`
   }
 
-  // Rest timer
   function startRestTimer(seconds?: number) {
     const duration = seconds ?? restDuration
     setRestRemaining(duration)
@@ -227,7 +216,6 @@ export default function NewWorkoutPageInner() {
     setRestRemaining(null)
   }
 
-  // Total volume
   const totalVolume = exercises.reduce((total, ex) => {
     return total + ex.sets.reduce((setTotal, set) => {
       return setTotal + (Number(set.weight_kg) || 0) * (Number(set.reps) || 0)
@@ -340,10 +328,10 @@ export default function NewWorkoutPageInner() {
     if (!exercise) return
     const setNumber = exercise.sets.length + 1
     const lastSet = exercise.sets[exercise.sets.length - 1]
-  
+
     const prefillReps = Number(lastSet?.reps) || 8
     const prefillWeight = Number(lastSet?.weight_kg) || 0
-  
+
     const res = await fetch("/api/exercise-sets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -355,7 +343,7 @@ export default function NewWorkoutPageInner() {
       }),
     })
     const data = await res.json()
-  
+
     setExercises(prev => prev.map(e =>
       e.id === workoutExerciseId
         ? { ...e, sets: [...e.sets, {
@@ -419,8 +407,6 @@ export default function NewWorkoutPageInner() {
     const promises: Promise<Response>[] = []
     exercises.forEach(exercise => {
       exercise.sets.forEach(set => {
-        console.log(`Saving set ${set.set_number}: reps=${set.reps} weight=${set.weight_kg} id=${set.id}`)
-
         const weightKey = `${set.id}-weight_kg`
         const repsKey = `${set.id}-reps`
         if (saveTimers.current[weightKey]) {
@@ -447,7 +433,6 @@ export default function NewWorkoutPageInner() {
   }
 
   async function finishWorkout() {
-    console.log("finishing, exercises:", exercises.length, exercises.map(e => e.sets.length))
     if (!workoutId) return
     setFinishing(true)
     setError("")
@@ -499,8 +484,8 @@ export default function NewWorkoutPageInner() {
     <main className="min-h-screen bg-neutral-950 text-white pb-40">
       <div className="max-w-2xl mx-auto p-4">
 
-        {/* Header */}
-        <div className="sticky top-0 z-20 bg-neutral-950 flex items-center justify-between py-4 mb-4">          <button
+        <div className="sticky top-0 z-20 bg-neutral-950 flex items-center justify-between py-4 mb-4">
+          <button
             onClick={cancelWorkout}
             disabled={cancelling}
             className="text-neutral-500 hover:text-red-400 text-sm transition-colors"
@@ -517,7 +502,6 @@ export default function NewWorkoutPageInner() {
           </button>
         </div>
 
-        {/* Workout name */}
         <input
           type="text"
           value={workoutName}
@@ -528,69 +512,67 @@ export default function NewWorkoutPageInner() {
 
         {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
-        {/* Rest Timer */}
-        {/* Rest Timer */}
-        <div className="sticky top-14 z-10 bg-neutral-950 pb-2 -mx-4 px-4">  <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-3">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-xs font-medium text-neutral-400">Rest Timer</p>
-        {restRemaining !== null ? (
-          <p className="text-xl font-bold text-teal-400 font-mono leading-tight">{formatTime(restRemaining)}</p>
-        ) : (
-          <p className="text-neutral-600 text-xs">Completes a set to start</p>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {restRemaining !== null && (
-          <button
-            onClick={cancelRestTimer}
-            className="text-xs text-neutral-500 hover:text-red-400 px-2 py-1 rounded bg-neutral-800"
-          >
-            Cancel
-          </button>
-        )}
-        <button
-          onClick={() => setShowRestPicker(!showRestPicker)}
-          className="text-xs text-teal-400 hover:text-teal-300 border border-teal-700 px-3 py-1.5 rounded-lg font-mono"
-        >
-          {formatTime(restDuration)}
-        </button>
-      </div>
-    </div>
+        <div className="sticky top-14 z-10 bg-neutral-950 pb-2 -mx-4 px-4">
+          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-neutral-400">Rest Timer</p>
+                {restRemaining !== null ? (
+                  <p className="text-xl font-bold text-teal-400 font-mono leading-tight">{formatTime(restRemaining)}</p>
+                ) : (
+                  <p className="text-neutral-600 text-xs">Complete a set to start</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {restRemaining !== null && (
+                  <button
+                    onClick={cancelRestTimer}
+                    className="text-xs text-neutral-500 hover:text-red-400 px-2 py-1 rounded bg-neutral-800"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowRestPicker(!showRestPicker)}
+                  className="text-xs text-teal-400 hover:text-teal-300 border border-teal-700 px-3 py-1.5 rounded-lg font-mono"
+                >
+                  {formatTime(restDuration)}
+                </button>
+              </div>
+            </div>
 
-    {showRestPicker && (
-      <div className="mt-2 pt-2 border-t border-neutral-800">
-        <div className="flex gap-2 flex-wrap">
-          {[60, 90, 120, 180, 240, 300].map(secs => (
-            <button
-              key={secs}
-              onClick={() => { setRestDuration(secs); setShowRestPicker(false) }}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                restDuration === secs
-                  ? "bg-teal-600 text-white"
-                  : "bg-neutral-800 text-neutral-400 hover:text-white"
-              }`}
-            >
-              {secs < 60 ? `${secs}s` : `${secs / 60}m`}
-            </button>
-          ))}
-          <input
-            type="number"
-            placeholder="Custom (s)"
-            className="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:border-teal-500"
-            onBlur={e => {
-              const val = Number(e.target.value)
-              if (val > 0) { setRestDuration(val); setShowRestPicker(false) }
-            }}
-          />
+            {showRestPicker && (
+              <div className="mt-2 pt-2 border-t border-neutral-800">
+                <div className="flex gap-2 flex-wrap">
+                  {[60, 90, 120, 180, 240, 300].map(secs => (
+                    <button
+                      key={secs}
+                      onClick={() => { setRestDuration(secs); setShowRestPicker(false) }}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                        restDuration === secs
+                          ? "bg-teal-600 text-white"
+                          : "bg-neutral-800 text-neutral-400 hover:text-white"
+                      }`}
+                    >
+                      {secs < 60 ? `${secs}s` : `${secs / 60}m`}
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    placeholder="Custom (s)"
+                    className="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:border-teal-500"
+                    onBlur={e => {
+                      const val = Number(e.target.value)
+                      if (val > 0) { setRestDuration(val); setShowRestPicker(false) }
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    )}
-  </div>
-</div>
 
-        {/* Exercises */}
-        <div className="space-y-4 mb-6">
+        <div className="space-y-4 mb-6 mt-4">
           {exercises.map(exercise => (
             <div key={exercise.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
 
@@ -607,7 +589,6 @@ export default function NewWorkoutPageInner() {
                 </button>
               </div>
 
-              {/* Last session reference */}
               {exercise.last_session && exercise.last_session.length > 0 && (
                 <div className="mb-3 px-3 py-2 bg-neutral-800/50 rounded-lg">
                   <p className="text-xs text-neutral-500 mb-1">Last session:</p>
@@ -621,7 +602,6 @@ export default function NewWorkoutPageInner() {
                 </div>
               )}
 
-              {/* Sets header */}
               {exercise.sets.length > 0 && (
                 <div className="grid grid-cols-12 gap-1 text-xs text-neutral-500 mb-2 px-1">
                   <span className="col-span-1">Set</span>
@@ -631,7 +611,6 @@ export default function NewWorkoutPageInner() {
                 </div>
               )}
 
-              {/* Sets */}
               <div className="space-y-2">
                 {exercise.sets.map(set => (
                   <div
@@ -644,12 +623,8 @@ export default function NewWorkoutPageInner() {
                       {set.set_number}
                     </span>
 
-                    {/* Weight */}
                     <div className="col-span-4 flex items-center gap-1">
-                      <button
-                        onClick={() => adjustSet(exercise.id, set.id, "weight_kg", -1)}
-                        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center"
-                      >−</button>
+                      <button onClick={() => adjustSet(exercise.id, set.id, "weight_kg", -1)} className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center">−</button>
                       <input
                         type="number"
                         value={set.weight_kg}
@@ -658,18 +633,11 @@ export default function NewWorkoutPageInner() {
                         className="flex-1 bg-neutral-800 border border-neutral-700 rounded px-1 py-1.5 text-sm text-center focus:outline-none focus:border-teal-500 min-w-0"
                         placeholder="0"
                       />
-                      <button
-                        onClick={() => adjustSet(exercise.id, set.id, "weight_kg", 1)}
-                        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center"
-                      >+</button>
+                      <button onClick={() => adjustSet(exercise.id, set.id, "weight_kg", 1)} className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center">+</button>
                     </div>
 
-                    {/* Reps */}
                     <div className="col-span-4 flex items-center gap-1">
-                      <button
-                        onClick={() => adjustSet(exercise.id, set.id, "reps", -1)}
-                        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center"
-                      >−</button>
+                      <button onClick={() => adjustSet(exercise.id, set.id, "reps", -1)} className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center">−</button>
                       <input
                         type="number"
                         value={set.reps}
@@ -678,28 +646,17 @@ export default function NewWorkoutPageInner() {
                         className="flex-1 bg-neutral-800 border border-neutral-700 rounded px-1 py-1.5 text-sm text-center focus:outline-none focus:border-teal-500 min-w-0"
                         placeholder="0"
                       />
-                      <button
-                        onClick={() => adjustSet(exercise.id, set.id, "reps", 1)}
-                        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center"
-                      >+</button>
+                      <button onClick={() => adjustSet(exercise.id, set.id, "reps", 1)} className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 text-sm flex items-center justify-center">+</button>
                     </div>
 
-                    {/* Checkmark + Delete */}
                     <div className="col-span-3 flex items-center justify-end gap-1">
                       <button
                         onClick={() => toggleSetComplete(exercise.id, set.id)}
                         className={`w-7 h-7 rounded flex items-center justify-center text-sm transition-colors ${
-                          set.completed
-                            ? "bg-teal-600 text-white"
-                            : "bg-neutral-800 text-neutral-600 hover:text-teal-400 hover:bg-neutral-700"
+                          set.completed ? "bg-teal-600 text-white" : "bg-neutral-800 text-neutral-600 hover:text-teal-400 hover:bg-neutral-700"
                         }`}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        onClick={() => removeSet(exercise.id, set.id)}
-                        className="w-6 h-7 text-neutral-600 hover:text-red-400 transition-colors text-xs flex items-center justify-center"
-                      >✕</button>
+                      >✓</button>
+                      <button onClick={() => removeSet(exercise.id, set.id)} className="w-6 h-7 text-neutral-600 hover:text-red-400 transition-colors text-xs flex items-center justify-center">✕</button>
                     </div>
                   </div>
                 ))}
@@ -715,7 +672,6 @@ export default function NewWorkoutPageInner() {
           ))}
         </div>
 
-        {/* Add Exercise */}
         <button
           onClick={() => setShowSearch(true)}
           className="w-full py-3 rounded-xl border border-neutral-800 border-dashed text-neutral-400 hover:text-teal-400 hover:border-teal-800 transition-colors"
@@ -723,17 +679,19 @@ export default function NewWorkoutPageInner() {
           + Add Exercise
         </button>
 
-        {/* Total volume footer */}
-        {totalVolume > 0 && (
-          <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 p-4">
-            <div className="max-w-2xl mx-auto flex items-center justify-between">
-              <span className="text-neutral-400 text-sm">Total Volume</span>
-              <span className="text-white font-bold">{totalVolume.toLocaleString()} kg</span>
+        <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 p-4">
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            <div>
+              <p className="text-neutral-500 text-xs">Total Volume</p>
+              <p className="text-white font-bold">{totalVolume.toLocaleString()} kg</p>
+            </div>
+            <div className="text-right">
+              <p className="text-neutral-500 text-xs">Elapsed</p>
+              <p className="text-teal-400 font-mono font-bold">{formatTime(elapsed)}</p>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Exercise Search Panel */}
         {showSearch && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
             <div className="bg-neutral-900 rounded-2xl border border-neutral-800 w-full max-w-md flex flex-col" style={{ maxHeight: "85vh" }}>
@@ -763,38 +721,35 @@ export default function NewWorkoutPageInner() {
                   </button>
                 </div>
 
-                {/* Body part pills */}
                 {!searchQuery && (
                   <div
-                  className="flex gap-2 overflow-x-auto pb-1 cursor-grab active:cursor-grabbing select-none"
-                  style={{ scrollbarWidth: "none" }}
-                  onMouseDown={(e) => {
-                    isDragging.current = false
-                    const el = e.currentTarget
-                    const startX = e.pageX - el.offsetLeft
-                    const scrollLeft = el.scrollLeft
-                    const onMove = (e: MouseEvent) => {
-                      isDragging.current = true
-                      const x = e.pageX - el.offsetLeft
-                      el.scrollLeft = scrollLeft - (x - startX)
-                    }
-                    const onUp = () => {
-                      window.removeEventListener("mousemove", onMove)
-                      window.removeEventListener("mouseup", onUp)
-                      setTimeout(() => { isDragging.current = false }, 50)
-                    }
-                    window.addEventListener("mousemove", onMove)
-                    window.addEventListener("mouseup", onUp)
-                  }}
-                >
+                    className="flex gap-2 overflow-x-auto pb-1 cursor-grab active:cursor-grabbing select-none"
+                    style={{ scrollbarWidth: "none" }}
+                    onMouseDown={(e) => {
+                      isDragging.current = false
+                      const el = e.currentTarget
+                      const startX = e.pageX - el.offsetLeft
+                      const scrollLeft = el.scrollLeft
+                      const onMove = (e: MouseEvent) => {
+                        isDragging.current = true
+                        const x = e.pageX - el.offsetLeft
+                        el.scrollLeft = scrollLeft - (x - startX)
+                      }
+                      const onUp = () => {
+                        window.removeEventListener("mousemove", onMove)
+                        window.removeEventListener("mouseup", onUp)
+                        setTimeout(() => { isDragging.current = false }, 50)
+                      }
+                      window.addEventListener("mousemove", onMove)
+                      window.addEventListener("mouseup", onUp)
+                    }}
+                  >
                     {BODY_PARTS.map(part => (
                       <button
                         key={part}
                         onClick={() => selectBodyPart(part)}
                         className={`flex-shrink-0 px-3 py-1 rounded-full text-xs capitalize transition-colors ${
-                          selectedBodyPart === part
-                            ? "bg-teal-600 text-white"
-                            : "bg-neutral-800 text-neutral-400 hover:text-white"
+                          selectedBodyPart === part ? "bg-teal-600 text-white" : "bg-neutral-800 text-neutral-400 hover:text-white"
                         }`}
                       >
                         {part}
@@ -805,8 +760,6 @@ export default function NewWorkoutPageInner() {
               </div>
 
               <div className="overflow-y-auto flex-1 p-2">
-
-                {/* Custom exercises */}
                 {!searchQuery && !selectedBodyPart && customExercises.length > 0 && (
                   <div className="mb-2">
                     <p className="text-xs text-neutral-500 px-3 py-1">My Custom Exercises</p>
@@ -824,14 +777,10 @@ export default function NewWorkoutPageInner() {
                   </div>
                 )}
 
-                {(searching || loadingBodyPart) && (
-                  <p className="text-neutral-500 text-sm text-center py-6">Loading...</p>
-                )}
+                {(searching || loadingBodyPart) && <p className="text-neutral-500 text-sm text-center py-6">Loading...</p>}
 
                 {!searching && !loadingBodyPart && !searchQuery && !selectedBodyPart && customExercises.length === 0 && (
-                  <p className="text-neutral-500 text-sm text-center py-4">
-                    Search above or pick a body part
-                  </p>
+                  <p className="text-neutral-500 text-sm text-center py-4">Search above or pick a body part</p>
                 )}
 
                 {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
@@ -846,13 +795,10 @@ export default function NewWorkoutPageInner() {
                     className="w-full text-left p-3 rounded-lg hover:bg-neutral-800 transition-colors"
                   >
                     <p className="capitalize font-medium text-sm">{exercise.name}</p>
-                    <p className="text-xs text-teal-400 capitalize mt-0.5">
-                      {exercise.target} · {exercise.bodyPart}
-                    </p>
+                    <p className="text-xs text-teal-400 capitalize mt-0.5">{exercise.target} · {exercise.bodyPart}</p>
                   </button>
                 ))}
 
-                {/* Create custom exercise */}
                 <div className="border-t border-neutral-800 mt-2 pt-2">
                   {!showCustomForm ? (
                     <button
@@ -879,19 +825,8 @@ export default function NewWorkoutPageInner() {
                         className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
                       />
                       <div className="flex gap-2">
-                        <button
-                          onClick={addCustomExercise}
-                          disabled={!customName.trim()}
-                          className="flex-1 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-lg text-sm"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => setShowCustomForm(false)}
-                          className="flex-1 py-2 bg-neutral-800 text-neutral-400 rounded-lg text-sm"
-                        >
-                          Cancel
-                        </button>
+                        <button onClick={addCustomExercise} disabled={!customName.trim()} className="flex-1 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-lg text-sm">Add</button>
+                        <button onClick={() => setShowCustomForm(false)} className="flex-1 py-2 bg-neutral-800 text-neutral-400 rounded-lg text-sm">Cancel</button>
                       </div>
                     </div>
                   )}
