@@ -76,7 +76,13 @@ export default function NewWorkoutPageInner({
   const [customMuscle, setCustomMuscle] = useState("")
   const [customExercises, setCustomExercises] = useState<{ id: string; name: string; muscle_group: string }[]>([])
 
-  const [restDuration, setRestDuration] = useState(120)
+  const [restDuration, setRestDuration] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("restDuration")
+      return saved ? Number(saved) : 60
+    }
+    return 60
+  })
   const [restRemaining, setRestRemaining] = useState<number | null>(null)
   const [showRestPicker, setShowRestPicker] = useState(false)
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -91,24 +97,45 @@ export default function NewWorkoutPageInner({
     initialized.current = true
 
     async function init() {
+      if (templateData && templateId) {
+        setWorkoutName(templateData.templateName)
+    
+        // Show exercises immediately with temp IDs — feels instant
+        const tempExercises = templateData.exercises.map((te, i) => ({
+          id: `temp-${i}`,
+          exercise_name: te.exercise_name,
+          muscle_group: te.muscle_group,
+          sets: Array.from({ length: te.default_sets || 3 }, (_, j) => {
+            const lastSets = templateData.lastSetsByExercise[te.exercise_name] || []
+            const lastSet = lastSets[j] || null
+            return {
+              id: `temp-${i}-${j}`,
+              set_number: j + 1,
+              reps: lastSet?.reps ?? te.default_reps ?? 8,
+              weight_kg: lastSet?.weight_kg ?? te.default_weight_kg ?? 0,
+            } as SetEntry
+          }),
+          last_session: templateData.lastSetsByExercise[te.exercise_name] || [],
+        }))
+        setExercises(tempExercises)
+      }
+    
+      // Create workout in DB
       const res = await fetch("/api/workouts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: templateData?.templateName || "My Workout" }),
       })
-
+    
       if (!res.ok) {
-        const text = await res.text()
-        console.error("Failed to create workout:", res.status, text)
         setError("Failed to start workout. Please try again.")
         return
       }
-
+    
       const data = await res.json()
       setWorkoutId(data.id)
-
+    
       if (templateData && templateId) {
-        // Create all workout exercises in parallel
         const allWeData = await Promise.all(
           templateData.exercises.map(te =>
             fetch("/api/workout-exercises", {
@@ -123,8 +150,7 @@ export default function NewWorkoutPageInner({
             }).then(r => r.json())
           )
         )
-
-        // Create all sets in parallel
+    
         const allSetPromises = templateData.exercises.flatMap((te, i) => {
           const weData = allWeData[i]
           const lastSets = templateData.lastSetsByExercise[te.exercise_name] || []
@@ -143,41 +169,30 @@ export default function NewWorkoutPageInner({
               }),
             }).then(r => r.json()).then(setData => ({
               exerciseIndex: i,
-              set: {
-                id: setData.id,
-                set_number: j + 1,
-                reps: prefillReps,
-                weight_kg: prefillWeight,
-              } as SetEntry,
+              realSetId: setData.id,
+              tempSetId: `temp-${i}-${j}`,
             }))
           })
         })
-
-        const allSetsResult = await Promise.all(allSetPromises)
-
-        const setsByExercise: Record<number, SetEntry[]> = {}
-        allSetsResult.forEach(({ exerciseIndex, set }) => {
-          if (!setsByExercise[exerciseIndex]) setsByExercise[exerciseIndex] = []
-          setsByExercise[exerciseIndex].push(set)
-        })
-        Object.values(setsByExercise).forEach(sets =>
-          sets.sort((a, b) => a.set_number - b.set_number)
-        )
-
-        const allExercises = templateData.exercises.map((te, i) => ({
-          id: allWeData[i].id,
-          exercise_name: te.exercise_name,
-          muscle_group: te.muscle_group,
-          sets: setsByExercise[i] || [],
-          last_session: templateData.lastSetsByExercise[te.exercise_name] || [],
-        }))
-
-        setExercises(allExercises)
+    
+        const allResults = await Promise.all(allSetPromises)
+    
+        // Swap temp IDs for real IDs silently in background
+        setExercises(prev => prev.map((ex, i) => ({
+          ...ex,
+          id: allWeData[i]?.id || ex.id,
+          sets: ex.sets.map((set, j) => {
+            const result = allResults.find(
+              r => r.exerciseIndex === i && r.tempSetId === `temp-${i}-${j}`
+            )
+            return result ? { ...set, id: result.realSetId } : set
+          }),
+        })))
       }
     }
     init()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
   useEffect(() => {
     fetch("/api/custom-exercises").then(r => r.json()).then(data => {

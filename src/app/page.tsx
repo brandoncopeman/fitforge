@@ -1,6 +1,7 @@
 import { UserButton } from "@clerk/nextjs"
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
+import { unstable_cache } from "next/cache"
 import sql from "@/lib/db"
 import Link from "next/link"
 
@@ -13,43 +14,49 @@ export default async function HomePage() {
     redirect("/sign-in")
   }
 
-  const rows = await sql`
-    SELECT * FROM profiles WHERE id = ${userId}
-  `
+  const getHomeData = unstable_cache(
+    async (uid: string) => {
+      const [profileRows, planTemplates, schedule, todayCalories] = await Promise.all([
+        sql`SELECT * FROM profiles WHERE id = ${uid}`,
+        sql`
+          SELECT * FROM workout_templates
+          WHERE user_id = ${uid} AND in_plan = true
+          ORDER BY plan_order ASC
+        `,
+        sql`
+          SELECT gs.day_of_week, gs.template_id, wt.name as template_name
+          FROM gym_schedule gs
+          LEFT JOIN workout_templates wt ON gs.template_id = wt.id
+          WHERE gs.user_id = ${uid}
+        `,
+        sql`
+          SELECT COALESCE(SUM(calories), 0) as total
+          FROM food_entries
+          WHERE user_id = ${uid} AND log_date = CURRENT_DATE
+        `,
+      ])
+      return { profileRows, planTemplates, schedule, todayCalories }
+    },
+    [`home-${userId}`],
+    { revalidate: 60 } // cache for 60 seconds
+  )
 
-  const profile = rows[0]
+  const { profileRows, planTemplates, schedule, todayCalories } = await getHomeData(userId!)
+
+  const profile = profileRows[0]
 
   if (!profile || !profile.weight_kg || !profile.goal) {
     redirect("/onboarding")
   }
 
-  const planTemplates = await sql`
-    SELECT * FROM workout_templates
-    WHERE user_id = ${userId} AND in_plan = true
-    ORDER BY plan_order ASC
-  `
   const lastPlanIndex = profile.last_plan_index ?? -1
   const nextPlanIndex = planTemplates.length > 0
     ? (lastPlanIndex + 1) % planTemplates.length
     : -1
   const nextTemplate = nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
-
-  const schedule = await sql`
-    SELECT gs.day_of_week, gs.template_id, wt.name as template_name
-    FROM gym_schedule gs
-    LEFT JOIN workout_templates wt ON gs.template_id = wt.id
-    WHERE gs.user_id = ${userId}
-  `
+  const caloriesConsumed = Math.round(Number(todayCalories[0]?.total || 0))
   const today = new Date()
   const todayDow = today.getDay()
-
-  const todayStr = today.toISOString().split("T")[0]
-  const todayCalories = await sql`
-    SELECT COALESCE(SUM(calories), 0) as total
-    FROM food_entries
-    WHERE user_id = ${userId} AND log_date = ${todayStr}
-  `
-  const caloriesConsumed = Math.round(Number(todayCalories[0]?.total || 0))
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-8">
