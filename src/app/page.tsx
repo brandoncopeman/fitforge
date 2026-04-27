@@ -1,7 +1,6 @@
 import { UserButton } from "@clerk/nextjs"
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
-import { unstable_cache } from "next/cache"
 import sql from "@/lib/db"
 import Link from "next/link"
 
@@ -14,34 +13,25 @@ export default async function HomePage() {
     redirect("/sign-in")
   }
 
-  const getHomeData = unstable_cache(
-    async (uid: string) => {
-      const [profileRows, planTemplates, schedule, todayCalories] = await Promise.all([
-        sql`SELECT * FROM profiles WHERE id = ${uid}`,
-        sql`
-          SELECT * FROM workout_templates
-          WHERE user_id = ${uid} AND in_plan = true
-          ORDER BY plan_order ASC
-        `,
-        sql`
-          SELECT gs.day_of_week, gs.template_id, wt.name as template_name
-          FROM gym_schedule gs
-          LEFT JOIN workout_templates wt ON gs.template_id = wt.id
-          WHERE gs.user_id = ${uid}
-        `,
-        sql`
-          SELECT COALESCE(SUM(calories), 0) as total
-          FROM food_entries
-          WHERE user_id = ${uid} AND log_date = CURRENT_DATE
-        `,
-      ])
-      return { profileRows, planTemplates, schedule, todayCalories }
-    },
-    [`home-${userId}`],
-    { revalidate: 5 }
-  )
-
-  const { profileRows, planTemplates, schedule, todayCalories } = await getHomeData(userId!)
+  const [profileRows, planTemplates, schedule, todayCalories] = await Promise.all([
+    sql`SELECT * FROM profiles WHERE id = ${userId}`,
+    sql`
+      SELECT * FROM workout_templates
+      WHERE user_id = ${userId} AND in_plan = true
+      ORDER BY plan_order ASC
+    `,
+    sql`
+      SELECT gs.day_of_week, gs.template_id, wt.name as template_name
+      FROM gym_schedule gs
+      LEFT JOIN workout_templates wt ON gs.template_id = wt.id
+      WHERE gs.user_id = ${userId}
+    `,
+    sql`
+      SELECT COALESCE(SUM(calories), 0) as total
+      FROM food_entries
+      WHERE user_id = ${userId} AND log_date = CURRENT_DATE
+    `,
+  ])
 
   const profile = profileRows[0]
 
@@ -128,7 +118,6 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        {/* Quick links */}
         <div className="grid grid-cols-2 gap-4 mt-4">
           <Link
             href="/workouts"
