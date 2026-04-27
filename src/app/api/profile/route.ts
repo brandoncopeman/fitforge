@@ -4,13 +4,11 @@ import sql from "@/lib/db"
 import { calculateTDEE } from "@/lib/tdee"
 
 export async function POST(req: Request) {
-  // Get the logged-in user's ID from Clerk
   const { userId } = await auth()
   if (!userId) {
     return NextResponse.json({ error: "Not logged in" }, { status: 401 })
   }
 
-  // Get the form data sent from the onboarding page
   const body = await req.json()
   const {
     display_name,
@@ -24,7 +22,6 @@ export async function POST(req: Request) {
     weekly_workout_target,
   } = body
 
-  // Calculate calorie and protein targets
   const { daily_calories, daily_protein } = calculateTDEE(
     weight_kg,
     height_cm,
@@ -34,7 +31,6 @@ export async function POST(req: Request) {
     goal
   )
 
-  // Save everything to the profiles table in Neon
   await sql`
     INSERT INTO profiles (
       id,
@@ -84,7 +80,6 @@ export async function POST(req: Request) {
   })
 }
 
-// GET route to fetch the current user's profile
 export async function GET() {
   const { userId } = await auth()
   if (!userId) {

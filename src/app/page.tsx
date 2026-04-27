@@ -38,7 +38,7 @@ export default async function HomePage() {
       return { profileRows, planTemplates, schedule, todayCalories }
     },
     [`home-${userId}`],
-    { revalidate: 60 } // cache for 60 seconds
+    { revalidate: 5 }
   )
 
   const { profileRows, planTemplates, schedule, todayCalories } = await getHomeData(userId!)
