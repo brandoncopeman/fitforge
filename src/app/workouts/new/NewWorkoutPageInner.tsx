@@ -669,8 +669,8 @@ const [recapData, setRecapData] = useState<{
 
         {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
-        <div className="sticky top-14 z-10 bg-neutral-950 pb-2 -mx-4 px-4">
-          <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-3">
+        <div className="sticky top-16 z-10 bg-neutral-950 pb-2 -mx-4 px-4">
+                    <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-3">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-neutral-400">
@@ -905,21 +905,26 @@ const [recapData, setRecapData] = useState<{
         </button>
 
         <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 p-4">
-          <div className="max-w-2xl mx-auto flex items-center justify-between">
-            <div>
-              <p className="text-neutral-500 text-xs">Total Volume</p>
-              <p className="text-white font-bold">
-                {totalVolume.toLocaleString()} kg
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-neutral-500 text-xs">Elapsed</p>
-              <p className="text-teal-400 font-mono font-bold">
-                {formatTime(elapsed)}
-              </p>
-            </div>
-          </div>
-        </div>
+  <div className="max-w-2xl mx-auto flex items-center justify-between">
+    <div>
+      <p className="text-neutral-500 text-xs">Total Volume</p>
+      <p className="text-white font-bold">{totalVolume.toLocaleString()} kg</p>
+    </div>
+    <div className="text-center">
+      <p className="text-neutral-500 text-xs">Sets Done</p>
+      <p className="text-white font-bold">
+        {exercises.reduce((sum, e) => sum + e.sets.filter(s => s.completed).length, 0)}
+        <span className="text-neutral-500 font-normal">
+          /{exercises.reduce((sum, e) => sum + e.sets.length, 0)}
+        </span>
+      </p>
+    </div>
+    <div className="text-right">
+      <p className="text-neutral-500 text-xs">Exercises</p>
+      <p className="text-white font-bold">{exercises.length}</p>
+    </div>
+  </div>
+</div>
 
         {showSearch && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">

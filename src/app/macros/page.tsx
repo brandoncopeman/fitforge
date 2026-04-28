@@ -7,7 +7,7 @@ export default async function MacrosPage() {
   const { userId } = await auth()
   if (!userId) redirect("/sign-in")
 
-  const [profile, todayFood] = await Promise.all([
+  const [profile, todayFood, weightLogs] = await Promise.all([
     sql`SELECT * FROM profiles WHERE id = ${userId}`,
     sql`
       SELECT
@@ -18,10 +18,22 @@ export default async function MacrosPage() {
       FROM food_entries
       WHERE user_id = ${userId} AND log_date = CURRENT_DATE
     `,
+    sql`
+      SELECT weight_kg, log_date FROM weight_logs
+      WHERE user_id = ${userId}
+      ORDER BY log_date DESC
+      LIMIT 30
+    `,
   ])
 
   return (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    <MacrosClient profile={profile[0] as any} todayFood={todayFood[0] as any} />
+    <MacrosClient
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      profile={profile[0] as any}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      todayFood={todayFood[0] as any}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      weightLogs={weightLogs as any[]}
+    />
   )
 }

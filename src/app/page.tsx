@@ -13,7 +13,7 @@ export default async function HomePage() {
     redirect("/sign-in")
   }
 
-  const [profileRows, planTemplates, schedule, todayCalories, todayStepsRows] = await Promise.all([
+  const [profileRows, planTemplates, schedule, todayCalories, todayStepsRows, latestWeightRows] = await Promise.all([
     sql`SELECT * FROM profiles WHERE id = ${userId}`,
     sql`
       SELECT * FROM workout_templates
@@ -35,6 +35,12 @@ export default async function HomePage() {
       SELECT steps FROM step_logs
       WHERE user_id = ${userId} AND log_date = CURRENT_DATE
     `,
+    sql`
+      SELECT weight_kg FROM weight_logs
+      WHERE user_id = ${userId}
+      ORDER BY log_date DESC
+      LIMIT 1
+    `,
   ])
 
   const profile = profileRows[0]
@@ -50,6 +56,7 @@ export default async function HomePage() {
   const nextTemplate = nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
   const caloriesConsumed = Math.round(Number(todayCalories[0]?.total || 0))
   const todaySteps = Number(todayStepsRows[0]?.steps || 0)
+  const latestWeight = latestWeightRows[0]?.weight_kg || null
   const today = new Date()
   const todayDow = today.getDay()
 
@@ -78,13 +85,26 @@ export default async function HomePage() {
             <p className="text-3xl font-bold text-teal-400">{caloriesConsumed}</p>
             <p className="text-neutral-500 text-xs mt-1">of {profile.daily_calorie_target} kcal</p>
           </Link>
+
           <Link
             href="/macros"
             className="bg-neutral-900 rounded-lg border border-neutral-800 p-5 hover:border-teal-700 transition-colors block"
           >
-            <p className="text-neutral-400 text-sm mb-1">Daily Protein</p>
-            <p className="text-3xl font-bold text-teal-400">{profile.daily_protein_target}g</p>
-            <p className="text-neutral-500 text-xs mt-1">protein target</p>
+            {profile.show_weight_on_home && latestWeight ? (
+              <>
+                <p className="text-neutral-400 text-sm mb-1">Weight</p>
+                <p className="text-3xl font-bold text-white">
+                  {latestWeight}<span className="text-lg text-neutral-400">kg</span>
+                </p>
+                <p className="text-neutral-500 text-xs mt-1">tap to update</p>
+              </>
+            ) : (
+              <>
+                <p className="text-neutral-400 text-sm mb-1">Daily Protein</p>
+                <p className="text-3xl font-bold text-teal-400">{profile.daily_protein_target}g</p>
+                <p className="text-neutral-500 text-xs mt-1">protein target</p>
+              </>
+            )}
           </Link>
         </div>
 

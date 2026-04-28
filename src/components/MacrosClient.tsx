@@ -4,16 +4,17 @@ import { useState } from "react"
 import Link from "next/link"
 
 type Profile = {
-    display_name: string
-    weight_kg: number
-    height_cm: number
-    age: number
-    sex: string
-    activity_level: string
-    goal: string
-    daily_calorie_target: number
-    daily_protein_target: number
-  }
+  display_name: string
+  weight_kg: number
+  height_cm: number
+  age: number
+  sex: string
+  activity_level: string
+  goal: string
+  daily_calorie_target: number
+  daily_protein_target: number
+  show_weight_on_home: boolean
+}
 
 type TodayFood = {
   calories: number
@@ -41,7 +42,7 @@ function calculateTDEE(weight: number, height: number, age: number, sex: string,
     sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9
   }
   const bmr = sex === "male"
-      ? 10 * weight + 6.25 * height - 5 * age + 5
+    ? 10 * weight + 6.25 * height - 5 * age + 5
     : 10 * weight + 6.25 * height - 5 * age - 161
 
   const tdee = bmr * (activityMap[activity] || 1.55)
@@ -54,7 +55,15 @@ function calculateTDEE(weight: number, height: number, age: number, sex: string,
   return { calories, protein, carbs, fat, tdee: Math.round(tdee) }
 }
 
-export default function MacrosClient({ profile, todayFood }: { profile: Profile; todayFood: TodayFood }) {
+export default function MacrosClient({
+  profile,
+  todayFood,
+  weightLogs: initialWeightLogs,
+}: {
+  profile: Profile
+  todayFood: TodayFood
+  weightLogs: { weight_kg: number; log_date: string }[]
+}) {
   const [showRecalc, setShowRecalc] = useState(false)
   const [weight, setWeight] = useState(String(profile.weight_kg))
   const [height, setHeight] = useState(String(profile.height_cm))
@@ -64,6 +73,16 @@ export default function MacrosClient({ profile, todayFood }: { profile: Profile;
   const [goal, setGoal] = useState(profile.goal)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Weight tracking state
+  const [weightLogs, setWeightLogs] = useState(initialWeightLogs)
+  const [weightInput, setWeightInput] = useState("")
+  const [showWeightOnHome, setShowWeightOnHome] = useState(profile.show_weight_on_home || false)
+  const [savingWeight, setSavingWeight] = useState(false)
+
+  const latestWeight = weightLogs[0]?.weight_kg || null
+  const startWeight = weightLogs[weightLogs.length - 1]?.weight_kg || null
+  const weightChange = latestWeight && startWeight ? Number(latestWeight) - Number(startWeight) : null
 
   const current = calculateTDEE(
     profile.weight_kg, profile.height_cm, profile.age,
@@ -102,6 +121,42 @@ export default function MacrosClient({ profile, todayFood }: { profile: Profile;
     setTimeout(() => window.location.reload(), 500)
   }
 
+  async function logWeight() {
+    if (!weightInput) return
+    setSavingWeight(true)
+    const todayStr = new Date().toISOString().split("T")[0]
+    const w = Number(weightInput)
+
+    // Optimistic update
+    setWeightLogs(prev => {
+      const existing = prev.findIndex(l => l.log_date?.toString().startsWith(todayStr))
+      if (existing >= 0) {
+        const updated = [...prev]
+        updated[existing] = { ...updated[existing], weight_kg: w }
+        return updated
+      }
+      return [{ weight_kg: w, log_date: todayStr }, ...prev]
+    })
+    setWeightInput("")
+
+    await fetch("/api/weight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weight_kg: w }),
+    })
+    setSavingWeight(false)
+  }
+
+  async function toggleWeightOnHome() {
+    const newVal = !showWeightOnHome
+    setShowWeightOnHome(newVal)
+    fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...profile, show_weight_on_home: newVal }),
+    })
+  }
+
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
       <div className="max-w-2xl mx-auto">
@@ -121,7 +176,6 @@ export default function MacrosClient({ profile, todayFood }: { profile: Profile;
         <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5 mb-4">
           <p className="text-sm font-medium text-neutral-400 mb-4">Today&apos;s Intake</p>
 
-          {/* Calories */}
           <div className="mb-4">
             <div className="flex items-end justify-between mb-1.5">
               <p className="text-sm text-neutral-400">Calories</p>
@@ -135,23 +189,19 @@ export default function MacrosClient({ profile, todayFood }: { profile: Profile;
             </div>
           </div>
 
-          {/* Macros */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "Protein", current: today.protein, target: profile.daily_protein_target, color: "bg-blue-500", unit: "g" },
-              { label: "Carbs", current: today.carbs, target: current.carbs, color: "bg-yellow-500", unit: "g" },
-              { label: "Fat", current: today.fat, target: current.fat, color: "bg-orange-500", unit: "g" },
-            ].map(({ label, current: cur, target, color, unit }) => (
+              { label: "Protein", current: today.protein, target: profile.daily_protein_target, color: "bg-blue-500" },
+              { label: "Carbs", current: today.carbs, target: current.carbs, color: "bg-yellow-500" },
+              { label: "Fat", current: today.fat, target: current.fat, color: "bg-orange-500" },
+            ].map(({ label, current: cur, target, color }) => (
               <div key={label}>
                 <div className="flex justify-between mb-1">
                   <p className="text-xs text-neutral-500">{label}</p>
-                  <p className="text-xs text-neutral-500">{cur}/{target}{unit}</p>
+                  <p className="text-xs text-neutral-500">{cur}/{target}g</p>
                 </div>
                 <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-1.5 rounded-full ${color}`}
-                    style={{ width: `${Math.min(100, (cur / target) * 100)}%` }}
-                  />
+                  <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(100, (cur / target) * 100)}%` }} />
                 </div>
                 <p className="text-lg font-bold text-white mt-1">{cur}<span className="text-xs text-neutral-500">g</span></p>
               </div>
@@ -207,14 +257,77 @@ export default function MacrosClient({ profile, todayFood }: { profile: Profile;
           </div>
         </div>
 
+        {/* Weight Tracking */}
+        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-medium">Weight Tracking</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-neutral-500">Show on home</span>
+              <button
+                onClick={toggleWeightOnHome}
+                className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${showWeightOnHome ? "bg-teal-600" : "bg-neutral-700"}`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${showWeightOnHome ? "left-5" : "left-0.5"}`} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1">
+              <p className="text-xs text-neutral-500 mb-1">Current weight</p>
+              <p className="text-3xl font-bold text-white">
+                {latestWeight ? `${latestWeight}` : "—"}
+                {latestWeight && <span className="text-lg text-neutral-400">kg</span>}
+              </p>
+              {weightChange !== null && (
+                <p className={`text-xs mt-0.5 ${weightChange < 0 ? "text-teal-400" : weightChange > 0 ? "text-red-400" : "text-neutral-500"}`}>
+                  {weightChange > 0 ? "+" : ""}{Number(weightChange).toFixed(1)}kg from start
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={weightInput}
+                onChange={e => setWeightInput(e.target.value)}
+                onFocus={e => e.target.select()}
+                placeholder="kg"
+                className="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+              />
+              <button
+                onClick={logWeight}
+                disabled={!weightInput || savingWeight}
+                className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-sm"
+              >
+                Log
+              </button>
+            </div>
+          </div>
+
+          {weightLogs.length > 0 && (
+            <div className="space-y-0">
+              {weightLogs.slice(0, 7).map((log, i) => {
+                const d = new Date(log.log_date)
+                const todayStr = new Date().toISOString().split("T")[0]
+                const isToday = log.log_date?.toString().startsWith(todayStr)
+                return (
+                  <div key={i} className="flex items-center justify-between py-2 border-t border-neutral-800 first:border-0">
+                    <p className={`text-sm ${isToday ? "text-teal-400" : "text-neutral-400"}`}>
+                      {isToday ? "Today" : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </p>
+                    <p className="text-sm font-medium">{log.weight_kg}kg</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Recalculate */}
         <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-medium">Recalibrate Targets</p>
-            <button
-              onClick={() => setShowRecalc(!showRecalc)}
-              className="text-teal-400 hover:text-teal-300 text-sm"
-            >
+            <button onClick={() => setShowRecalc(!showRecalc)} className="text-teal-400 hover:text-teal-300 text-sm">
               {showRecalc ? "Cancel" : "Update"}
             </button>
           </div>
