@@ -1,0 +1,322 @@
+"use client"
+
+import { useState } from "react"
+import Link from "next/link"
+
+type Profile = {
+    display_name: string
+    weight_kg: number
+    height_cm: number
+    age: number
+    sex: string
+    activity_level: string
+    goal: string
+    daily_calorie_target: number
+    daily_protein_target: number
+  }
+
+type TodayFood = {
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+const ACTIVITY_LEVELS = [
+  { value: "sedentary", label: "Sedentary", desc: "Little or no exercise" },
+  { value: "light", label: "Lightly Active", desc: "1–3 days/week" },
+  { value: "moderate", label: "Moderately Active", desc: "3–5 days/week" },
+  { value: "active", label: "Very Active", desc: "6–7 days/week" },
+  { value: "very_active", label: "Extremely Active", desc: "Hard daily exercise" },
+]
+
+const GOALS = [
+  { value: "cut", label: "Lose Weight", desc: "−500 kcal/day" },
+  { value: "maintain", label: "Maintain", desc: "At maintenance" },
+  { value: "bulk", label: "Build Muscle", desc: "+300 kcal/day" },
+]
+
+function calculateTDEE(weight: number, height: number, age: number, sex: string, activity: string, goal: string) {
+  const activityMap: Record<string, number> = {
+    sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9
+  }
+  const bmr = sex === "male"
+      ? 10 * weight + 6.25 * height - 5 * age + 5
+    : 10 * weight + 6.25 * height - 5 * age - 161
+
+  const tdee = bmr * (activityMap[activity] || 1.55)
+  const goalMap: Record<string, number> = { cut: -500, maintain: 0, bulk: 300 }
+  const calories = Math.round(tdee + (goalMap[goal] || 0))
+  const protein = Math.round(weight * 1.6)
+  const fat = Math.round((calories * 0.25) / 9)
+  const carbs = Math.round((calories - protein * 4 - fat * 9) / 4)
+
+  return { calories, protein, carbs, fat, tdee: Math.round(tdee) }
+}
+
+export default function MacrosClient({ profile, todayFood }: { profile: Profile; todayFood: TodayFood }) {
+  const [showRecalc, setShowRecalc] = useState(false)
+  const [weight, setWeight] = useState(String(profile.weight_kg))
+  const [height, setHeight] = useState(String(profile.height_cm))
+  const [age, setAge] = useState(String(profile.age))
+  const [sex, setSex] = useState(profile.sex)
+  const [activity, setActivity] = useState(profile.activity_level)
+  const [goal, setGoal] = useState(profile.goal)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const current = calculateTDEE(
+    profile.weight_kg, profile.height_cm, profile.age,
+    profile.sex, profile.activity_level, profile.goal
+  )
+
+  const preview = showRecalc ? calculateTDEE(
+    Number(weight), Number(height), Number(age), sex, activity, goal
+  ) : null
+
+  const today = {
+    calories: Math.round(Number(todayFood.calories)),
+    protein: Math.round(Number(todayFood.protein)),
+    carbs: Math.round(Number(todayFood.carbs)),
+    fat: Math.round(Number(todayFood.fat)),
+  }
+
+  async function saveRecalc() {
+    setSaving(true)
+    await fetch("/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        display_name: profile.display_name,
+        weight_kg: Number(weight),
+        height_cm: Number(height),
+        age: Number(age),
+        sex,
+        activity_level: activity,
+        goal,
+      }),
+    })
+    setSaving(false)
+    setSaved(true)
+    setShowRecalc(false)
+    setTimeout(() => window.location.reload(), 500)
+  }
+
+  return (
+    <main className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
+      <div className="max-w-2xl mx-auto">
+
+        <div className="mb-6">
+          <Link href="/" className="text-neutral-500 text-sm hover:text-neutral-300">← Home</Link>
+          <h1 className="text-2xl font-bold mt-1">Macros & TDEE</h1>
+        </div>
+
+        {saved && (
+          <div className="bg-teal-600/20 border border-teal-700 rounded-xl p-3 mb-4 text-teal-400 text-sm text-center">
+            Targets updated successfully!
+          </div>
+        )}
+
+        {/* Today's macros */}
+        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5 mb-4">
+          <p className="text-sm font-medium text-neutral-400 mb-4">Today&apos;s Intake</p>
+
+          {/* Calories */}
+          <div className="mb-4">
+            <div className="flex items-end justify-between mb-1.5">
+              <p className="text-sm text-neutral-400">Calories</p>
+              <p className="text-sm text-neutral-400">{today.calories} / {profile.daily_calorie_target} kcal</p>
+            </div>
+            <div className="w-full h-2.5 bg-neutral-800 rounded-full overflow-hidden">
+              <div
+                className={`h-2.5 rounded-full ${today.calories > profile.daily_calorie_target ? "bg-red-500" : "bg-teal-500"}`}
+                style={{ width: `${Math.min(100, (today.calories / profile.daily_calorie_target) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Macros */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Protein", current: today.protein, target: profile.daily_protein_target, color: "bg-blue-500", unit: "g" },
+              { label: "Carbs", current: today.carbs, target: current.carbs, color: "bg-yellow-500", unit: "g" },
+              { label: "Fat", current: today.fat, target: current.fat, color: "bg-orange-500", unit: "g" },
+            ].map(({ label, current: cur, target, color, unit }) => (
+              <div key={label}>
+                <div className="flex justify-between mb-1">
+                  <p className="text-xs text-neutral-500">{label}</p>
+                  <p className="text-xs text-neutral-500">{cur}/{target}{unit}</p>
+                </div>
+                <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-1.5 rounded-full ${color}`}
+                    style={{ width: `${Math.min(100, (cur / target) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-lg font-bold text-white mt-1">{cur}<span className="text-xs text-neutral-500">g</span></p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* TDEE breakdown */}
+        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5 mb-4">
+          <p className="text-sm font-medium text-neutral-400 mb-4">Your TDEE Breakdown</p>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-neutral-800 rounded-xl p-3">
+              <p className="text-xs text-neutral-500">Maintenance</p>
+              <p className="text-2xl font-bold text-white">{current.tdee}</p>
+              <p className="text-xs text-neutral-500">kcal/day</p>
+            </div>
+            <div className="bg-neutral-800 rounded-xl p-3">
+              <p className="text-xs text-neutral-500">Your Target</p>
+              <p className="text-2xl font-bold text-teal-400">{current.calories}</p>
+              <p className="text-xs text-neutral-500">kcal/day</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+            <div className="bg-neutral-800 rounded-lg p-2">
+              <p className="text-blue-400 font-bold">{current.protein}g</p>
+              <p className="text-xs text-neutral-500">Protein</p>
+            </div>
+            <div className="bg-neutral-800 rounded-lg p-2">
+              <p className="text-yellow-400 font-bold">{current.carbs}g</p>
+              <p className="text-xs text-neutral-500">Carbs</p>
+            </div>
+            <div className="bg-neutral-800 rounded-lg p-2">
+              <p className="text-orange-400 font-bold">{current.fat}g</p>
+              <p className="text-xs text-neutral-500">Fat</p>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-neutral-800 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-neutral-500">Goal</span>
+              <span className="capitalize text-neutral-300">{profile.goal === "cut" ? "Lose Weight" : profile.goal === "bulk" ? "Build Muscle" : "Maintain"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-500">Activity</span>
+              <span className="capitalize text-neutral-300">{ACTIVITY_LEVELS.find(a => a.value === profile.activity_level)?.label}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-500">Body weight</span>
+              <span className="text-neutral-300">{profile.weight_kg}kg</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recalculate */}
+        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium">Recalibrate Targets</p>
+            <button
+              onClick={() => setShowRecalc(!showRecalc)}
+              className="text-teal-400 hover:text-teal-300 text-sm"
+            >
+              {showRecalc ? "Cancel" : "Update"}
+            </button>
+          </div>
+
+          {showRecalc && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-neutral-500 mb-1 block">Weight (kg)</label>
+                  <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 mb-1 block">Height (cm)</label>
+                  <input type="number" value={height} onChange={e => setHeight(e.target.value)}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 mb-1 block">Age</label>
+                  <input type="number" value={age} onChange={e => setAge(e.target.value)}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500 mb-1 block">Sex</label>
+                  <select value={sex} onChange={e => setSex(e.target.value)}
+                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500">
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 mb-1 block">Activity Level</label>
+                <div className="space-y-1">
+                  {ACTIVITY_LEVELS.map(a => (
+                    <button key={a.value} onClick={() => setActivity(a.value)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        activity === a.value ? "bg-teal-600/20 border border-teal-500 text-white" : "bg-neutral-800 text-neutral-400"
+                      }`}>
+                      {a.label} <span className="text-xs text-neutral-500">— {a.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 mb-1 block">Goal</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {GOALS.map(g => (
+                    <button key={g.value} onClick={() => setGoal(g.value)}
+                      className={`py-2 px-2 rounded-lg text-xs text-center transition-colors ${
+                        goal === g.value ? "bg-teal-600 text-white" : "bg-neutral-800 text-neutral-400"
+                      }`}>
+                      <p className="font-medium">{g.label}</p>
+                      <p className="text-neutral-400 text-xs">{g.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {preview && (
+                <div className="bg-neutral-800 rounded-xl p-3 text-sm">
+                  <p className="text-neutral-400 text-xs mb-2">New targets preview:</p>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div>
+                      <p className="font-bold text-teal-400">{preview.calories}</p>
+                      <p className="text-xs text-neutral-500">kcal</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-400">{preview.protein}g</p>
+                      <p className="text-xs text-neutral-500">protein</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-yellow-400">{preview.carbs}g</p>
+                      <p className="text-xs text-neutral-500">carbs</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-orange-400">{preview.fat}g</p>
+                      <p className="text-xs text-neutral-500">fat</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={saveRecalc}
+                disabled={saving}
+                className="w-full py-3 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+              >
+                {saving ? "Saving..." : "Save New Targets"}
+              </button>
+            </div>
+          )}
+
+          {!showRecalc && (
+            <p className="text-neutral-500 text-xs">Update your stats to recalculate your daily calorie and macro targets.</p>
+          )}
+        </div>
+
+      </div>
+    </main>
+  )
+}

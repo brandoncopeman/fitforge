@@ -13,7 +13,7 @@ export default async function HomePage() {
     redirect("/sign-in")
   }
 
-  const [profileRows, planTemplates, schedule, todayCalories] = await Promise.all([
+  const [profileRows, planTemplates, schedule, todayCalories, todayStepsRows] = await Promise.all([
     sql`SELECT * FROM profiles WHERE id = ${userId}`,
     sql`
       SELECT * FROM workout_templates
@@ -31,6 +31,10 @@ export default async function HomePage() {
       FROM food_entries
       WHERE user_id = ${userId} AND log_date = CURRENT_DATE
     `,
+    sql`
+      SELECT steps FROM step_logs
+      WHERE user_id = ${userId} AND log_date = CURRENT_DATE
+    `,
   ])
 
   const profile = profileRows[0]
@@ -45,6 +49,7 @@ export default async function HomePage() {
     : -1
   const nextTemplate = nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
   const caloriesConsumed = Math.round(Number(todayCalories[0]?.total || 0))
+  const todaySteps = Number(todayStepsRows[0]?.steps || 0)
   const today = new Date()
   const todayDow = today.getDay()
 
@@ -73,19 +78,31 @@ export default async function HomePage() {
             <p className="text-3xl font-bold text-teal-400">{caloriesConsumed}</p>
             <p className="text-neutral-500 text-xs mt-1">of {profile.daily_calorie_target} kcal</p>
           </Link>
-          <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-5">
+          <Link
+            href="/macros"
+            className="bg-neutral-900 rounded-lg border border-neutral-800 p-5 hover:border-teal-700 transition-colors block"
+          >
             <p className="text-neutral-400 text-sm mb-1">Daily Protein</p>
             <p className="text-3xl font-bold text-teal-400">{profile.daily_protein_target}g</p>
             <p className="text-neutral-500 text-xs mt-1">protein target</p>
-          </div>
+          </Link>
         </div>
 
         <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-5">
+          <Link
+            href="/steps"
+            className="bg-neutral-900 rounded-lg border border-neutral-800 p-5 hover:border-teal-700 transition-colors block"
+          >
             <p className="text-neutral-400 text-sm mb-1">Daily Steps</p>
-            <p className="text-3xl font-bold text-white">{profile.daily_step_target?.toLocaleString()}</p>
-            <p className="text-neutral-500 text-xs mt-1">step goal</p>
-          </div>
+            <p className="text-3xl font-bold text-white">{todaySteps.toLocaleString()}</p>
+            <p className="text-neutral-500 text-xs mt-1">of {profile.daily_step_target?.toLocaleString()} goal</p>
+            <div className="w-full h-1 bg-neutral-800 rounded-full mt-2">
+              <div
+                className="h-1 bg-teal-600 rounded-full"
+                style={{ width: `${Math.min(100, (todaySteps / (profile.daily_step_target || 8000)) * 100)}%` }}
+              />
+            </div>
+          </Link>
 
           <Link
             href="/schedule"

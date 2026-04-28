@@ -171,39 +171,29 @@ export default function TemplateManager({
         ) : (
           <div className="space-y-2">
             {planTemplates.map((template, idx) => (
-              <div key={template.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full bg-teal-600/20 border border-teal-700/50 flex items-center justify-center flex-shrink-0">
-                    <span className="text-teal-400 text-xs font-bold">{idx + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{template.name}</p>
-                    <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => moveUp(template)}
-                      disabled={idx === 0}
-                      className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30 flex items-center justify-center text-xs"
-                    >↑</button>
-                    <button
-                      onClick={() => moveDown(template)}
-                      disabled={idx === planTemplates.length - 1}
-                      className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30 flex items-center justify-center text-xs"
-                    >↓</button>
-                    <Link
-                      href={`/workouts/templates/${template.id}`}
-                      className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs"
-                    >✎</Link>
-                    <button
-                      onClick={() => toggleInPlan(template)}
-                      className="w-7 h-7 rounded bg-neutral-800 text-red-400 hover:text-red-300 flex items-center justify-center text-xs"
-                      title="Remove from plan"
-                    >−</button>
-                  </div>
-                </div>
-              </div>
-            ))}
+  <div key={template.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
+    <div className="flex items-center gap-3">
+      <div className="w-7 h-7 rounded-full bg-teal-600/20 border border-teal-700/50 flex items-center justify-center flex-shrink-0">
+        <span className="text-teal-400 text-xs font-bold">{idx + 1}</span>
+      </div>
+      <Link href={`/workouts/templates/${template.id}/detail`} className="flex-1 min-w-0">
+        <p className="font-medium truncate">{template.name}</p>
+        <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
+      </Link>
+      <div className="flex items-center gap-1">
+        <button onClick={() => moveUp(template)} disabled={idx === 0}
+          className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30 flex items-center justify-center text-xs">↑</button>
+        <button onClick={() => moveDown(template)} disabled={idx === planTemplates.length - 1}
+          className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30 flex items-center justify-center text-xs">↓</button>
+        <Link href={`/workouts/templates/${template.id}`}
+          className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs">✎</Link>
+        <button onClick={() => toggleInPlan(template)}
+          className="w-7 h-7 rounded bg-neutral-800 text-red-400 hover:text-red-300 flex items-center justify-center text-xs"
+          title="Remove from plan">−</button>
+      </div>
+    </div>
+  </div>
+))}
           </div>
         )}
       </div>
@@ -256,30 +246,22 @@ export default function TemplateManager({
         ) : (
           <div className="space-y-2">
             {otherTemplates.map(template => (
-              <div key={template.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{template.name}</p>
-                  <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => toggleInPlan(template)}
-                    className="px-2 h-7 rounded bg-neutral-800 text-teal-400 hover:text-teal-300 flex items-center justify-center text-xs"
-                    title="Add to plan"
-                  >
-                    + Plan
-                  </button>
-                  <Link
-                    href={`/workouts/templates/${template.id}`}
-                    className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs"
-                  >✎</Link>
-                  <button
-                    onClick={() => deleteTemplate(template.id)}
-                    className="w-7 h-7 rounded bg-neutral-800 text-neutral-600 hover:text-red-400 flex items-center justify-center text-xs"
-                  >✕</button>
-                </div>
-              </div>
-            ))}
+  <div key={template.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 flex items-center gap-3">
+    <Link href={`/workouts/templates/${template.id}/detail`} className="flex-1 min-w-0">
+      <p className="font-medium truncate">{template.name}</p>
+      <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
+    </Link>
+    <div className="flex items-center gap-1">
+      <button onClick={() => toggleInPlan(template)}
+        className="px-2 h-7 rounded bg-neutral-800 text-teal-400 hover:text-teal-300 flex items-center justify-center text-xs"
+        title="Add to plan">+ Plan</button>
+      <Link href={`/workouts/templates/${template.id}`}
+        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs">✎</Link>
+      <button onClick={() => deleteTemplate(template.id)}
+        className="w-7 h-7 rounded bg-neutral-800 text-neutral-600 hover:text-red-400 flex items-center justify-center text-xs">✕</button>
+    </div>
+  </div>
+))}
           </div>
         )}
       </div>

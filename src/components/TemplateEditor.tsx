@@ -21,8 +21,7 @@ type ExerciseResult = {
   target: string
 }
 
-const BODY_PARTS = ["back", "cardio", "chest", "lower arms", "lower legs", "neck", "shoulders", "upper arms", "upper legs", "waist"]
-
+const BODY_PARTS = ["back", "cardio", "chest", "lower arm", "lower leg", "neck", "shoulder", "upper arm", "upper leg", "waist"]
 export default function TemplateEditor({
   template,
   initialExercises,
@@ -66,16 +65,19 @@ export default function TemplateEditor({
 
   async function selectBodyPart(part: string) {
     if (isDragging.current) return
+    setSearchQuery(part)
     setSelectedBodyPart(part)
-    setSearchQuery("")
+    setSearching(true)
     setSearchResults([])
-    setLoadingBodyPart(true)
     try {
-      const res = await fetch(`/api/exercises/by-body-part?part=${encodeURIComponent(part)}`)
+      const res = await fetch(`/api/exercises/search?q=${encodeURIComponent(part)}`)
       const data = await res.json()
-      setBodyPartExercises(Array.isArray(data) ? data : [])
-    } catch { setBodyPartExercises([]) }
-    finally { setLoadingBodyPart(false) }
+      setSearchResults(Array.isArray(data) ? data : [])
+    } catch {
+      setSearchResults([])
+    } finally {
+      setSearching(false)
+    }
   }
 
   async function addExercise(ex: { name: string; target?: string; bodyPart?: string; muscle_group?: string }) {
@@ -168,7 +170,6 @@ export default function TemplateEditor({
   }
 
   const displayedExercises = searchQuery.length >= 2 ? searchResults : selectedBodyPart ? bodyPartExercises : []
-
   return (
     <main className="min-h-screen bg-neutral-950 text-white pb-32">
       <div className="max-w-2xl mx-auto p-4">
