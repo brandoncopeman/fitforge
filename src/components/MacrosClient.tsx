@@ -14,6 +14,7 @@ type Profile = {
   daily_calorie_target: number
   daily_protein_target: number
   show_weight_on_home: boolean
+  goal_weight_kg: number | null
 }
 
 type TodayFood = {
@@ -55,6 +56,14 @@ function calculateTDEE(weight: number, height: number, age: number, sex: string,
   return { calories, protein, carbs, fat, tdee: Math.round(tdee) }
 }
 
+function estimateWeeksToGoal(currentKg: number, goalKg: number, caloricDiff: number): number | null {
+  if (!currentKg || !goalKg || currentKg === goalKg) return null
+  const weeklyDeficit = Math.abs(caloricDiff) * 7
+  const kgToChange = Math.abs(currentKg - goalKg)
+  if (weeklyDeficit === 0) return null
+  return Math.round((kgToChange * 7700) / weeklyDeficit)
+}
+
 export default function MacrosClient({
   profile,
   todayFood,
@@ -74,11 +83,12 @@ export default function MacrosClient({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  // Weight tracking state
   const [weightLogs, setWeightLogs] = useState(initialWeightLogs)
   const [weightInput, setWeightInput] = useState("")
   const [showWeightOnHome, setShowWeightOnHome] = useState(profile.show_weight_on_home || false)
   const [savingWeight, setSavingWeight] = useState(false)
+  const [goalWeight, setGoalWeight] = useState(String(profile.goal_weight_kg || ""))
+  const [editingGoalWeight, setEditingGoalWeight] = useState(false)
 
   const latestWeight = weightLogs[0]?.weight_kg || null
   const startWeight = weightLogs[weightLogs.length - 1]?.weight_kg || null
@@ -99,6 +109,8 @@ export default function MacrosClient({
     carbs: Math.round(Number(todayFood.carbs)),
     fat: Math.round(Number(todayFood.fat)),
   }
+
+  const caloricDiff = current.calories - current.tdee
 
   async function saveRecalc() {
     setSaving(true)
@@ -127,7 +139,6 @@ export default function MacrosClient({
     const todayStr = new Date().toISOString().split("T")[0]
     const w = Number(weightInput)
 
-    // Optimistic update
     setWeightLogs(prev => {
       const existing = prev.findIndex(l => l.log_date?.toString().startsWith(todayStr))
       if (existing >= 0) {
@@ -150,10 +161,19 @@ export default function MacrosClient({
   async function toggleWeightOnHome() {
     const newVal = !showWeightOnHome
     setShowWeightOnHome(newVal)
-    fetch("/api/profile", {
-      method: "POST",
+    fetch("/api/profile/settings", {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...profile, show_weight_on_home: newVal }),
+      body: JSON.stringify({ show_weight_on_home: newVal }),
+    })
+  }
+
+  async function saveGoalWeight() {
+    setEditingGoalWeight(false)
+    fetch("/api/profile/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal_weight_kg: Number(goalWeight) }),
     })
   }
 
@@ -272,6 +292,7 @@ export default function MacrosClient({
             </div>
           </div>
 
+          {/* Log weight */}
           <div className="flex items-center gap-3 mb-4">
             <div className="flex-1">
               <p className="text-xs text-neutral-500 mb-1">Current weight</p>
@@ -304,8 +325,9 @@ export default function MacrosClient({
             </div>
           </div>
 
+          {/* Weight history */}
           {weightLogs.length > 0 && (
-            <div className="space-y-0">
+            <div className="space-y-0 mb-4">
               {weightLogs.slice(0, 7).map((log, i) => {
                 const d = new Date(log.log_date)
                 const todayStr = new Date().toISOString().split("T")[0]
@@ -321,6 +343,75 @@ export default function MacrosClient({
               })}
             </div>
           )}
+
+          {/* Goal weight */}
+          <div className="pt-3 border-t border-neutral-800">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-neutral-500 font-medium">Goal Weight</p>
+              <button
+                onClick={() => setEditingGoalWeight(!editingGoalWeight)}
+                className="text-xs text-teal-400 hover:text-teal-300"
+              >
+                {editingGoalWeight ? "Cancel" : goalWeight ? "Edit" : "Set Goal"}
+              </button>
+            </div>
+
+            {editingGoalWeight ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={goalWeight}
+                  onChange={e => setGoalWeight(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  placeholder="kg"
+                  autoFocus
+                  className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
+                />
+                <button
+                  onClick={saveGoalWeight}
+                  className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            ) : goalWeight ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-bold text-lg">{goalWeight}kg</p>
+                  {latestWeight && (
+                    <p className={`text-sm font-medium ${
+                      Number(latestWeight) > Number(goalWeight) ? "text-orange-400" : "text-teal-400"
+                    }`}>
+                      {Math.abs(Number(latestWeight) - Number(goalWeight)).toFixed(1)}kg to go
+                    </p>
+                  )}
+                </div>
+
+                {latestWeight && (() => {
+                  const weeks = estimateWeeksToGoal(Number(latestWeight), Number(goalWeight), caloricDiff)
+                  if (!weeks) return null
+                  const months = Math.floor(weeks / 4.33)
+                  const remWeeks = Math.round(weeks % 4.33)
+                  const timeStr = months > 0
+                    ? `~${months} month${months > 1 ? "s" : ""}${remWeeks > 0 ? ` ${remWeeks}wk` : ""}`
+                    : `~${weeks} week${weeks > 1 ? "s" : ""}`
+                  const eta = new Date()
+                  eta.setDate(eta.getDate() + weeks * 7)
+                  return (
+                    <div className="bg-neutral-800 rounded-xl p-3">
+                      <p className="text-xs text-neutral-500 mb-1">Estimated time at current deficit</p>
+                      <p className="text-teal-400 font-bold">{timeStr}</p>
+                      <p className="text-xs text-neutral-500 mt-0.5">
+                        Est. {eta.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    </div>
+                  )
+                })()}
+              </div>
+            ) : (
+              <p className="text-neutral-600 text-xs">No goal weight set</p>
+            )}
+          </div>
         </div>
 
         {/* Recalculate */}
