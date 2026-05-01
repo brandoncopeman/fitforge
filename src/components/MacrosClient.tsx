@@ -38,6 +38,9 @@ const GOALS = [
   { value: "bulk", label: "Build Muscle", desc: "+300 kcal/day" },
 ]
 
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
 function calculateTDEE(weight: number, height: number, age: number, sex: string, activity: string, goal: string) {
   const activityMap: Record<string, number> = {
     sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9
@@ -89,6 +92,10 @@ export default function MacrosClient({
   const [savingWeight, setSavingWeight] = useState(false)
   const [goalWeight, setGoalWeight] = useState(String(profile.goal_weight_kg || ""))
   const [editingGoalWeight, setEditingGoalWeight] = useState(false)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
 
   const latestWeight = weightLogs[0]?.weight_kg || null
   const startWeight = weightLogs[weightLogs.length - 1]?.weight_kg || null
@@ -111,6 +118,30 @@ export default function MacrosClient({
   }
 
   const caloricDiff = current.calories - current.tdee
+  const todayStr = new Date().toISOString().split("T")[0]
+
+  // Build calendar data
+  const calendarDays = () => {
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const firstDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const days = []
+
+    // Empty cells before first day
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null)
+    }
+
+    // Days of month
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+      const log = weightLogs.find(l => l.log_date?.toString().startsWith(dateStr))
+      days.push({ day: d, dateStr, weight: log?.weight_kg || null })
+    }
+
+    return days
+  }
 
   async function saveRecalc() {
     setSaving(true)
@@ -136,7 +167,6 @@ export default function MacrosClient({
   async function logWeight() {
     if (!weightInput) return
     setSavingWeight(true)
-    const todayStr = new Date().toISOString().split("T")[0]
     const w = Number(weightInput)
 
     setWeightLogs(prev => {
@@ -176,6 +206,11 @@ export default function MacrosClient({
       body: JSON.stringify({ goal_weight_kg: Number(goalWeight) }),
     })
   }
+
+  const days = calendarDays()
+  const allWeights = weightLogs.map(l => Number(l.weight_kg)).filter(Boolean)
+  const minWeight = allWeights.length ? Math.min(...allWeights) : 0
+  const maxWeight = allWeights.length ? Math.max(...allWeights) : 0
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
@@ -325,12 +360,93 @@ export default function MacrosClient({
             </div>
           </div>
 
-          {/* Weight history */}
+          {/* Calendar */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                className="text-neutral-400 hover:text-white px-2 py-1 rounded text-sm"
+              >
+                ‹
+              </button>
+              <p className="text-sm font-medium">
+                {MONTHS[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}
+              </p>
+              <button
+                onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                className="text-neutral-400 hover:text-white px-2 py-1 rounded text-sm"
+                disabled={calendarMonth >= new Date(new Date().getFullYear(), new Date().getMonth(), 1)}
+              >
+                ›
+              </button>
+            </div>
+
+            {/* Day headers */}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {DAYS.map(d => (
+                <p key={d} className="text-xs text-neutral-600 text-center">{d[0]}</p>
+              ))}
+            </div>
+
+            {/* Calendar grid */}
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day, i) => {
+                if (!day) return <div key={`empty-${i}`} />
+                const isToday = day.dateStr === todayStr
+                const hasWeight = day.weight !== null
+                const weightNum = Number(day.weight)
+
+                // Color intensity based on weight relative to min/max
+                let dotColor = "bg-neutral-700"
+                if (hasWeight && maxWeight > minWeight) {
+                  const ratio = (weightNum - minWeight) / (maxWeight - minWeight)
+                  if (profile.goal === "cut") {
+                    dotColor = ratio < 0.33 ? "bg-teal-400" : ratio < 0.66 ? "bg-teal-600" : "bg-orange-500"
+                  } else if (profile.goal === "bulk") {
+                    dotColor = ratio > 0.66 ? "bg-teal-400" : ratio > 0.33 ? "bg-teal-600" : "bg-orange-500"
+                  } else {
+                    dotColor = "bg-teal-500"
+                  }
+                }
+
+                return (
+                  <div
+                    key={day.dateStr}
+                    className={`aspect-square rounded-lg flex flex-col items-center justify-center relative ${
+                      isToday ? "ring-1 ring-teal-400" : ""
+                    } ${hasWeight ? dotColor : "bg-neutral-800"}`}
+                  >
+                    <span className={`text-xs font-medium ${hasWeight ? "text-white" : isToday ? "text-teal-400" : "text-neutral-500"}`}>
+                      {day.day}
+                    </span>
+                    {hasWeight && (
+                      <span className="text-white" style={{ fontSize: "8px" }}>
+                        {weightNum}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center gap-3 mt-2 justify-center">
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-teal-400" />
+                <span className="text-xs text-neutral-500">{profile.goal === "cut" ? "Lower" : "Higher"}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-neutral-700" />
+                <span className="text-xs text-neutral-500">No log</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent weight history */}
           {weightLogs.length > 0 && (
             <div className="space-y-0 mb-4">
-              {weightLogs.slice(0, 7).map((log, i) => {
+              <p className="text-xs text-neutral-500 mb-2">Recent</p>
+              {weightLogs.slice(0, 5).map((log, i) => {
                 const d = new Date(log.log_date)
-                const todayStr = new Date().toISOString().split("T")[0]
                 const isToday = log.log_date?.toString().startsWith(todayStr)
                 return (
                   <div key={i} className="flex items-center justify-between py-2 border-t border-neutral-800 first:border-0">
@@ -367,21 +483,14 @@ export default function MacrosClient({
                   autoFocus
                   className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500"
                 />
-                <button
-                  onClick={saveGoalWeight}
-                  className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg text-sm"
-                >
-                  Save
-                </button>
+                <button onClick={saveGoalWeight} className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg text-sm">Save</button>
               </div>
             ) : goalWeight ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-white font-bold text-lg">{goalWeight}kg</p>
                   {latestWeight && (
-                    <p className={`text-sm font-medium ${
-                      Number(latestWeight) > Number(goalWeight) ? "text-orange-400" : "text-teal-400"
-                    }`}>
+                    <p className={`text-sm font-medium ${Number(latestWeight) > Number(goalWeight) ? "text-orange-400" : "text-teal-400"}`}>
                       {Math.abs(Number(latestWeight) - Number(goalWeight)).toFixed(1)}kg to go
                     </p>
                   )}

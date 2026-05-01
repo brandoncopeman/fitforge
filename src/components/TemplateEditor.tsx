@@ -3,6 +3,22 @@
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 
 type TemplateExercise = {
   id: string
@@ -22,6 +38,48 @@ type ExerciseResult = {
 }
 
 const BODY_PARTS = ["back", "cardio", "chest", "lower arm", "lower leg", "neck", "shoulder", "upper arm", "upper leg", "waist"]
+
+function SortableTemplateExercise({
+  exercise,
+  children,
+}: {
+  exercise: TemplateExercise
+  children: React.ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: exercise.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
+      <div
+        {...attributes}
+        {...listeners}
+        className="flex items-center justify-center w-full py-1 mb-2 cursor-grab active:cursor-grabbing touch-none"
+      >
+        <div className="flex gap-1">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="w-1 h-1 rounded-full bg-neutral-600" />
+          ))}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
 export default function TemplateEditor({
   template,
   initialExercises,
@@ -38,14 +96,39 @@ export default function TemplateEditor({
   const [searchResults, setSearchResults] = useState<ExerciseResult[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedBodyPart, setSelectedBodyPart] = useState<string | null>(null)
-  const [bodyPartExercises, setBodyPartExercises] = useState<ExerciseResult[]>([])
-  const [loadingBodyPart, setLoadingBodyPart] = useState(false)
+  const [bodyPartExercises] = useState<ExerciseResult[]>([])
+  const [loadingBodyPart] = useState(false)
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customName, setCustomName] = useState("")
   const [customMuscle, setCustomMuscle] = useState("")
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isDragging = useRef(false)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
+  )
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    const oldIndex = exercises.findIndex(e => e.id === active.id)
+    const newIndex = exercises.findIndex(e => e.id === over.id)
+    const reordered = arrayMove(exercises, oldIndex, newIndex)
+    setExercises(reordered)
+
+    await Promise.all(
+      reordered.map((ex, idx) =>
+        fetch(`/api/template-exercises/${ex.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_index: idx }),
+        })
+      )
+    )
+  }
 
   function handleSearchInput(value: string) {
     setSearchQuery(value)
@@ -98,7 +181,6 @@ export default function TemplateEditor({
     setSearchQuery("")
     setSearchResults([])
     setSelectedBodyPart(null)
-    setBodyPartExercises([])
   }
 
   async function addCustomExercise() {
@@ -116,46 +198,18 @@ export default function TemplateEditor({
   }
 
   async function removeExercise(id: string) {
-    await fetch(`/api/template-exercises/${id}`, { method: "DELETE" })
     setExercises(prev => prev.filter(e => e.id !== id))
+    fetch(`/api/template-exercises/${id}`, { method: "DELETE" })
   }
 
   async function updateExercise(id: string, field: keyof TemplateExercise, value: number) {
     const safeValue = isNaN(value) ? 0 : value
     setExercises(prev => prev.map(e => e.id === id ? { ...e, [field]: safeValue } : e))
-    await fetch(`/api/template-exercises/${id}`, {
+    fetch(`/api/template-exercises/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: safeValue }),
     })
-  }
-
-  async function moveUp(idx: number) {
-    if (idx === 0) return
-    const above = exercises[idx - 1]
-    const current = exercises[idx]
-    await Promise.all([
-      fetch(`/api/template-exercises/${current.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_index: idx - 1 }) }),
-      fetch(`/api/template-exercises/${above.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_index: idx }) }),
-    ])
-    const newExercises = [...exercises]
-    newExercises[idx - 1] = { ...current, order_index: idx - 1 }
-    newExercises[idx] = { ...above, order_index: idx }
-    setExercises(newExercises)
-  }
-
-  async function moveDown(idx: number) {
-    if (idx === exercises.length - 1) return
-    const below = exercises[idx + 1]
-    const current = exercises[idx]
-    await Promise.all([
-      fetch(`/api/template-exercises/${current.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_index: idx + 1 }) }),
-      fetch(`/api/template-exercises/${below.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_index: idx }) }),
-    ])
-    const newExercises = [...exercises]
-    newExercises[idx + 1] = { ...current, order_index: idx + 1 }
-    newExercises[idx] = { ...below, order_index: idx }
-    setExercises(newExercises)
   }
 
   async function save() {
@@ -170,6 +224,7 @@ export default function TemplateEditor({
   }
 
   const displayedExercises = searchQuery.length >= 2 ? searchResults : selectedBodyPart ? bodyPartExercises : []
+
   return (
     <main className="min-h-screen bg-neutral-950 text-white pb-32">
       <div className="max-w-2xl mx-auto p-4">
@@ -193,54 +248,64 @@ export default function TemplateEditor({
           placeholder="Template name"
         />
 
-        <div className="space-y-3 mb-6">
-          {exercises.map((exercise, idx) => (
-            <div key={exercise.id} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-col gap-0.5">
-                    <button onClick={() => moveUp(idx)} disabled={idx === 0} className="text-neutral-600 hover:text-white disabled:opacity-30 text-xs leading-none">▲</button>
-                    <button onClick={() => moveDown(idx)} disabled={idx === exercises.length - 1} className="text-neutral-600 hover:text-white disabled:opacity-30 text-xs leading-none">▼</button>
-                  </div>
-                  <div>
-                    <p className="font-semibold capitalize">{exercise.exercise_name}</p>
-                    <p className="text-teal-400 text-xs capitalize">{exercise.muscle_group}</p>
-                  </div>
-                </div>
-                <button onClick={() => removeExercise(exercise.id)} className="text-neutral-600 hover:text-red-400 text-sm">Remove</button>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: "Sets", field: "default_sets" as const, value: exercise.default_sets, step: 1 },
-                  { label: "Reps", field: "default_reps" as const, value: exercise.default_reps, step: 1 },
-                  { label: "Weight (kg)", field: "default_weight_kg" as const, value: exercise.default_weight_kg, step: 2.5 },
-                ].map(({ label, field, value, step }) => (
-                  <div key={field}>
-                    <p className="text-xs text-neutral-500 mb-1">{label}</p>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => updateExercise(exercise.id, field, Math.max(0, (isNaN(value) ? 0 : value) - step))}
-                        className="w-6 h-6 rounded bg-neutral-800 text-neutral-400 hover:text-white text-xs flex items-center justify-center"
-                      >−</button>
-                      <input
-                        type="number"
-                        value={isNaN(value) ? 0 : value}
-                        onChange={e => updateExercise(exercise.id, field, Number(e.target.value))}
-                        onFocus={e => e.target.select()}
-                        className="flex-1 bg-neutral-800 border border-neutral-700 rounded px-1 py-1 text-xs text-center focus:outline-none focus:border-teal-500 min-w-0"
-                      />
-                      <button
-                        onClick={() => updateExercise(exercise.id, field, (isNaN(value) ? 0 : value) + step)}
-                        className="w-6 h-6 rounded bg-neutral-800 text-neutral-400 hover:text-white text-xs flex items-center justify-center"
-                      >+</button>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={exercises.map(e => e.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-3 mb-6">
+              {exercises.map((exercise) => (
+                <SortableTemplateExercise key={exercise.id} exercise={exercise}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="font-semibold capitalize">{exercise.exercise_name}</p>
+                      <p className="text-teal-400 text-xs capitalize">{exercise.muscle_group}</p>
                     </div>
+                    <button
+                      onClick={() => removeExercise(exercise.id)}
+                      className="text-red-500 hover:text-red-400 text-xs font-medium border border-red-800 px-2 py-1 rounded-lg transition-colors"
+                    >
+                      Remove
+                    </button>
                   </div>
-                ))}
-              </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: "Sets", field: "default_sets" as const, value: exercise.default_sets, step: 1 },
+                      { label: "Reps", field: "default_reps" as const, value: exercise.default_reps, step: 1 },
+                      { label: "Weight (kg)", field: "default_weight_kg" as const, value: exercise.default_weight_kg, step: 2.5 },
+                    ].map(({ label, field, value, step }) => (
+                      <div key={field}>
+                        <p className="text-xs text-neutral-500 mb-1">{label}</p>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => updateExercise(exercise.id, field, Math.max(0, (isNaN(value) ? 0 : value) - step))}
+                            className="w-6 h-6 rounded bg-neutral-800 text-neutral-400 hover:text-white text-xs flex items-center justify-center"
+                          >−</button>
+                          <input
+                            type="number"
+                            value={isNaN(value) ? 0 : value}
+                            onChange={e => updateExercise(exercise.id, field, Number(e.target.value))}
+                            onFocus={e => e.target.select()}
+                            className="flex-1 bg-neutral-800 border border-neutral-700 rounded px-1 py-1 text-xs text-center focus:outline-none focus:border-teal-500 min-w-0"
+                          />
+                          <button
+                            onClick={() => updateExercise(exercise.id, field, (isNaN(value) ? 0 : value) + step)}
+                            className="w-6 h-6 rounded bg-neutral-800 text-neutral-400 hover:text-white text-xs flex items-center justify-center"
+                          >+</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </SortableTemplateExercise>
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
 
         <button
           onClick={() => setShowSearch(true)}
@@ -270,7 +335,6 @@ export default function TemplateEditor({
                   </button>
                 </div>
 
-                {/* Draggable body part pills */}
                 {!searchQuery && (
                   <div
                     className="flex gap-2 overflow-x-auto pb-1 cursor-grab active:cursor-grabbing select-none"
