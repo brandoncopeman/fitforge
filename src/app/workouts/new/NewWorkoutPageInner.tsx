@@ -31,8 +31,6 @@ type SetEntry = {
   set_number: number
   reps: number | ""
   weight_kg: number | ""
-  saved_reps?: number
-  saved_weight?: number
   completed?: boolean
 }
 
@@ -68,14 +66,7 @@ function SortableExerciseCard({
   exercise: WorkoutExercise
   children: React.ReactNode
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: exercise.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: exercise.id })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -86,15 +77,9 @@ function SortableExerciseCard({
 
   return (
     <div ref={setNodeRef} style={style} className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
-      <div
-        {...attributes}
-        {...listeners}
-        className="flex items-center justify-center w-full py-1 mb-2 cursor-grab active:cursor-grabbing touch-none"
-      >
+      <div {...attributes} {...listeners} className="flex items-center justify-center w-full py-1 mb-2 cursor-grab active:cursor-grabbing touch-none">
         <div className="flex gap-1">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="w-1 h-1 rounded-full bg-neutral-600" />
-          ))}
+          {[...Array(6)].map((_, i) => <div key={i} className="w-1 h-1 rounded-full bg-neutral-600" />)}
         </div>
       </div>
       {children}
@@ -120,24 +105,21 @@ export default function NewWorkoutPageInner({
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState("")
   const [showRecap, setShowRecap] = useState(false)
-  const [recapData, setRecapData] = useState<{
-    exercises: number
-    sets: number
-    volume: number
-    duration: number
-  } | null>(null)
+  const [recapData, setRecapData] = useState<{ exercises: number; sets: number; volume: number; duration: number } | null>(null)
 
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Exercise[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedBodyPart, setSelectedBodyPart] = useState<string | null>(null)
-  const [bodyPartExercises] = useState<Exercise[]>([])
 
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customName, setCustomName] = useState("")
   const [customMuscle, setCustomMuscle] = useState("")
   const [customExercises, setCustomExercises] = useState<{ id: string; name: string; muscle_group: string }[]>([])
+
+  const [favourites, setFavourites] = useState<Set<string>>(new Set())
+  const [favouriteExercises, setFavouriteExercises] = useState<{ exercise_name: string; muscle_group: string }[]>([])
 
   const [restDuration, setRestDuration] = useState(() => {
     if (typeof window !== "undefined") {
@@ -273,6 +255,16 @@ export default function NewWorkoutPageInner({
   }, [])
 
   useEffect(() => {
+    fetch("/api/favourite-exercises").then(r => r.json()).then(data => {
+      if (Array.isArray(data)) {
+        setFavouriteExercises(data)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setFavourites(new Set(data.map((f: any) => f.exercise_name.toLowerCase())))
+      }
+    })
+  }, [])
+
+  useEffect(() => {
     const interval = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000)
     return () => clearInterval(interval)
   }, [startTime])
@@ -289,10 +281,7 @@ export default function NewWorkoutPageInner({
     if (restTimerRef.current) clearInterval(restTimerRef.current)
     restTimerRef.current = setInterval(() => {
       setRestRemaining(prev => {
-        if (prev === null || prev <= 1) {
-          clearInterval(restTimerRef.current!)
-          return null
-        }
+        if (prev === null || prev <= 1) { clearInterval(restTimerRef.current!); return null }
         return prev - 1
       })
     }, 1000)
@@ -303,11 +292,9 @@ export default function NewWorkoutPageInner({
     setRestRemaining(null)
   }
 
-  const totalVolume = exercises.reduce((total, ex) => {
-    return total + ex.sets.reduce((setTotal, set) => {
-      return setTotal + (Number(set.weight_kg) || 0) * (Number(set.reps) || 0)
-    }, 0)
-  }, 0)
+  const totalVolume = exercises.reduce((total, ex) =>
+    total + ex.sets.reduce((setTotal, set) =>
+      setTotal + (Number(set.weight_kg) || 0) * (Number(set.reps) || 0), 0), 0)
 
   function handleSearchInput(value: string) {
     setSearchQuery(value)
@@ -320,11 +307,8 @@ export default function NewWorkoutPageInner({
         const res = await fetch(`/api/exercises/search?q=${encodeURIComponent(value)}`)
         const data = await res.json()
         setSearchResults(Array.isArray(data) ? data : [])
-      } catch {
-        setSearchResults([])
-      } finally {
-        setSearching(false)
-      }
+      } catch { setSearchResults([]) }
+      finally { setSearching(false) }
     }, 400)
   }
 
@@ -337,26 +321,36 @@ export default function NewWorkoutPageInner({
       const res = await fetch(`/api/exercises/search?q=${encodeURIComponent(part)}`)
       const data = await res.json()
       setSearchResults(Array.isArray(data) ? data : [])
-    } catch {
-      setSearchResults([])
-    } finally {
-      setSearching(false)
+    } catch { setSearchResults([]) }
+    finally { setSearching(false) }
+  }
+
+  async function toggleFavourite(exercise: { name: string; target?: string; bodyPart?: string; muscle_group?: string }) {
+    const name = exercise.name.toLowerCase()
+    const muscle = exercise.target || exercise.muscle_group || exercise.bodyPart || "other"
+    if (favourites.has(name)) {
+      setFavourites(prev => { const s = new Set(prev); s.delete(name); return s })
+      setFavouriteExercises(prev => prev.filter(f => f.exercise_name.toLowerCase() !== name))
+      fetch(`/api/favourite-exercises?name=${encodeURIComponent(exercise.name)}`, { method: "DELETE" })
+    } else {
+      setFavourites(prev => new Set([...prev, name]))
+      setFavouriteExercises(prev => [...prev, { exercise_name: exercise.name, muscle_group: muscle }])
+      fetch("/api/favourite-exercises", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exercise_name: exercise.name, muscle_group: muscle }),
+      })
     }
   }
 
   async function addExercise(exercise: { name: string; target?: string; bodyPart?: string; muscle_group?: string }) {
     if (!workoutId) return
-    const muscle = exercise.target || exercise.muscle_group || "other"
+    const muscle = exercise.target || exercise.muscle_group || exercise.bodyPart || "other"
 
     const weRes = await fetch("/api/workout-exercises", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workout_id: workoutId,
-        exercise_name: exercise.name,
-        muscle_group: muscle,
-        order_index: exercises.length,
-      }),
+      body: JSON.stringify({ workout_id: workoutId, exercise_name: exercise.name, muscle_group: muscle, order_index: exercises.length }),
     })
     const weData = await weRes.json()
 
@@ -367,12 +361,7 @@ export default function NewWorkoutPageInner({
       fetch("/api/template-exercises", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          template_id: templateId,
-          exercise_name: exercise.name,
-          muscle_group: muscle,
-          order_index: exercises.length,
-        }),
+        body: JSON.stringify({ template_id: templateId, exercise_name: exercise.name, muscle_group: muscle, order_index: exercises.length }),
       })
     }
 
@@ -451,9 +440,7 @@ export default function NewWorkoutPageInner({
 
   function removeSet(workoutExerciseId: string, setId: string) {
     setExercises(prev => prev.map(e =>
-      e.id === workoutExerciseId
-        ? { ...e, sets: e.sets.filter(s => s.id !== setId) }
-        : e
+      e.id === workoutExerciseId ? { ...e, sets: e.sets.filter(s => s.id !== setId) } : e
     ))
     if (!setId.startsWith("temp-")) {
       fetch(`/api/exercise-sets/${setId}`, { method: "DELETE" })
@@ -491,9 +478,7 @@ export default function NewWorkoutPageInner({
 
   async function cancelWorkout() {
     setCancelling(true)
-    if (workoutId) {
-      fetch(`/api/workouts/${workoutId}`, { method: "DELETE" })
-    }
+    if (workoutId) fetch(`/api/workouts/${workoutId}`, { method: "DELETE" })
     router.push("/")
   }
 
@@ -528,7 +513,6 @@ export default function NewWorkoutPageInner({
 
     setRecapData({ exercises: exercises.length, sets: totalSets, volume: totalVolume, duration: durationMinutes })
     setShowRecap(true)
-
     flushSaves()
 
     if (templateId) {
@@ -568,7 +552,7 @@ export default function NewWorkoutPageInner({
     })
   }
 
-  const displayedExercises = searchQuery.length >= 2 ? searchResults : selectedBodyPart ? bodyPartExercises : []
+  const displayedExercises = searchQuery.length >= 2 ? searchResults : []
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white pb-40">
@@ -611,9 +595,7 @@ export default function NewWorkoutPageInner({
               </div>
               <div className="flex items-center gap-2">
                 {restRemaining !== null && (
-                  <button onClick={cancelRestTimer} className="text-xs text-neutral-500 hover:text-red-400 px-2 py-1 rounded bg-neutral-800">
-                    Cancel
-                  </button>
+                  <button onClick={cancelRestTimer} className="text-xs text-neutral-500 hover:text-red-400 px-2 py-1 rounded bg-neutral-800">Cancel</button>
                 )}
                 <button
                   onClick={() => setShowRestPicker(!showRestPicker)}
@@ -797,6 +779,25 @@ export default function NewWorkoutPageInner({
               </div>
 
               <div className="overflow-y-auto flex-1 p-2">
+
+                {/* Favourites */}
+                {!searchQuery && !selectedBodyPart && favouriteExercises.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-xs text-neutral-500 px-3 py-1">★ Favourites</p>
+                    {favouriteExercises.map((ex, i) => (
+                      <div key={i} className="flex items-center hover:bg-neutral-800 rounded-lg transition-colors">
+                        <button onClick={() => addExercise({ name: ex.exercise_name, muscle_group: ex.muscle_group })} className="flex-1 text-left p-3">
+                          <p className="capitalize font-medium text-sm">{ex.exercise_name}</p>
+                          <p className="text-xs text-yellow-400 capitalize mt-0.5">{ex.muscle_group} · favourite</p>
+                        </button>
+                        <button onClick={() => toggleFavourite({ name: ex.exercise_name, muscle_group: ex.muscle_group })} className="px-3 py-3 text-lg text-yellow-400 hover:text-neutral-600 transition-colors">★</button>
+                      </div>
+                    ))}
+                    <div className="border-t border-neutral-800 my-2" />
+                  </div>
+                )}
+
+                {/* Custom exercises */}
                 {!searchQuery && !selectedBodyPart && customExercises.length > 0 && (
                   <div className="mb-2">
                     <p className="text-xs text-neutral-500 px-3 py-1">My Custom Exercises</p>
@@ -811,14 +812,24 @@ export default function NewWorkoutPageInner({
                 )}
 
                 {searching && <p className="text-neutral-500 text-sm text-center py-6">Loading...</p>}
-                {!searching && !searchQuery && !selectedBodyPart && customExercises.length === 0 && <p className="text-neutral-500 text-sm text-center py-4">Search above or pick a body part</p>}
-                {!searching && searchQuery.length >= 2 && searchResults.length === 0 && <p className="text-neutral-500 text-sm text-center py-6">No exercises found</p>}
+                {!searching && !searchQuery && !selectedBodyPart && favouriteExercises.length === 0 && customExercises.length === 0 && (
+                  <p className="text-neutral-500 text-sm text-center py-4">Search above or pick a body part</p>
+                )}
+                {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
+                  <p className="text-neutral-500 text-sm text-center py-6">No exercises found</p>
+                )}
 
                 {displayedExercises.map(exercise => (
-                  <button type="button" key={exercise.id} onClick={() => addExercise(exercise)} className="w-full text-left p-3 rounded-lg hover:bg-neutral-800 transition-colors">
-                    <p className="capitalize font-medium text-sm">{exercise.name}</p>
-                    <p className="text-xs text-teal-400 capitalize mt-0.5">{exercise.target} · {exercise.bodyPart}</p>
-                  </button>
+                  <div key={exercise.id} className="flex items-center hover:bg-neutral-800 rounded-lg transition-colors">
+                    <button type="button" onClick={() => addExercise(exercise)} className="flex-1 text-left p-3">
+                      <p className="capitalize font-medium text-sm">{exercise.name}</p>
+                      <p className="text-xs text-teal-400 capitalize mt-0.5">{exercise.target} · {exercise.bodyPart}</p>
+                    </button>
+                    <button
+                      onClick={() => toggleFavourite(exercise)}
+                      className={`px-3 py-3 text-lg transition-colors ${favourites.has(exercise.name.toLowerCase()) ? "text-yellow-400" : "text-neutral-600 hover:text-yellow-400"}`}
+                    >★</button>
+                  </div>
                 ))}
 
                 <div className="border-t border-neutral-800 mt-2 pt-2">
