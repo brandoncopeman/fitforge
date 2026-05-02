@@ -1,147 +1,86 @@
-"use client";
+"use client"
 
-import { useState, useRef } from "react";
-import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  rectSortingStrategy,
-  useSortable,
-  arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import Link from "next/link"
+import { UserButton } from "@clerk/nextjs"
 
-const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 type Profile = {
-  display_name?: string;
-  daily_calorie_target: number;
-  daily_protein_target: number;
-  daily_step_target?: number;
-  show_weight_on_home?: boolean;
+  display_name?: string
+  daily_calorie_target: number
+  daily_protein_target: number
+  daily_step_target?: number
+  show_weight_on_home?: boolean
   daily_quote?: {
-    text?: string;
-    author?: string;
-  };
-};
+    text?: string
+    author?: string
+  }
+}
 
 type ScheduleItem = {
-  day_of_week: number;
-  template_name?: string | null;
-};
+  day_of_week: number
+  template_name?: string | null
+}
 
 type WorkoutTemplate = {
-  id: string | number;
-  name: string;
-  exercise_count?: number | null;
-};
+  id: string | number
+  name: string
+  exercise_count?: number | null
+}
 
 type ProgressEvent = {
-  id: string;
-  title: string;
-  message: string;
-  emoji: string | null;
-  event_type: string;
-};
+  id: string
+  title: string
+  message: string
+  emoji: string | null
+  event_type: string
+  created_at: string
+}
 
 type PlanStatus = {
-  weeklyTarget: number;
-  completedThisWeek: number;
-  remainingThisWeek: number;
-  status: "no_plan" | "on_track" | "behind" | "complete";
-  title: string;
-  message: string;
-  emoji: string;
-  streakWeeks: number;
-};
+  weeklyTarget: number
+  completedThisWeek: number
+  remainingThisWeek: number
+  status: "no_plan" | "on_track" | "behind" | "complete"
+  title: string
+  message: string
+  emoji: string
+  streakWeeks: number
+}
 
 type WeeklyRecapSummary = {
-  id: string;
-  title: string;
-  message: string;
-  emoji: string | null;
-  workouts: number;
-  volume: number;
-  steps: number;
-  goals: number;
-  weightChange: number | null;
-  created_at: string;
-} | null;
+  id: string
+  title: string
+  message: string
+  emoji: string | null
+  workouts: number
+  volume: number
+  steps: number
+  goals: number
+  weightChange: number | null
+  created_at: string
+} | null
 
-function SortableSection({
-  id,
-  children,
-  onClickCapture,
-}: {
-  id: string;
-  children: React.ReactNode;
-  onClickCapture: (e: React.MouseEvent) => void;
-}) {
-  const [pressing, setPressing] = useState(false);
-  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+function isWithinDays(dateString: string, days: number) {
+  const date = new Date(dateString)
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.65 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
-
-  function startPressHint() {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-    }
-
-    pressTimerRef.current = setTimeout(() => {
-      setPressing(true);
-    }, 250);
+  if (Number.isNaN(date.getTime())) {
+    return false
   }
 
-  function stopPressHint() {
-    if (pressTimerRef.current) {
-      clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffDays = diffMs / (1000 * 60 * 60 * 24)
 
-    setPressing(false);
-  }
+  return diffDays >= 0 && diffDays <= days
+}
 
+function shouldShowPlanStatus(status: PlanStatus) {
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onPointerDown={startPressHint}
-      onPointerUp={stopPressHint}
-      onPointerCancel={stopPressHint}
-      onPointerLeave={stopPressHint}
-      onClickCapture={onClickCapture}
-      className={`h-full touch-none select-none ${
-        isDragging ? "cursor-grabbing" : "cursor-pointer active:cursor-grab"
-      } ${pressing || isDragging ? "home-card-pulse" : ""}`}
-    >
-      {children}
-    </div>
-  );
+    status.status === "behind" ||
+    status.status === "complete" ||
+    status.status === "no_plan"
+  )
 }
 
 export default function HomeClient({
@@ -152,70 +91,35 @@ export default function HomeClient({
   schedule,
   todayDow,
   nextTemplate,
-  sectionOrder: initialOrder,
+  sectionOrder,
   progressEvents,
   planStatus,
   weeklyRecap,
 }: {
-  profile: Profile;
-  caloriesConsumed: number;
-  todaySteps: number;
-  latestWeight: number | null;
-  schedule: ScheduleItem[];
-  todayDow: number;
-  nextTemplate: WorkoutTemplate | null;
-  sectionOrder: string[];
-  progressEvents: ProgressEvent[];
-  planStatus: PlanStatus;
-  weeklyRecap: WeeklyRecapSummary;
+  profile: Profile
+  caloriesConsumed: number
+  todaySteps: number
+  latestWeight: number | null
+  schedule: ScheduleItem[]
+  todayDow: number
+  nextTemplate: WorkoutTemplate | null
+  sectionOrder: string[]
+  progressEvents: ProgressEvent[]
+  planStatus: PlanStatus
+  weeklyRecap: WeeklyRecapSummary
 }) {
-  const [sectionOrder, setSectionOrder] = useState(initialOrder);
-  const isDraggingRef = useRef(false);
+  const getSchedDay = (i: number) => schedule.find((s) => s.day_of_week === i)
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        delay: 500,
-        tolerance: 8,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 500,
-        tolerance: 8,
-      },
-    })
-  );
+  const latestProgressEvent = progressEvents[0]
 
-  function handleDragStart() {
-    isDraggingRef.current = true;
-  }
+  const showProgressStory =
+    latestProgressEvent !== undefined &&
+    isWithinDays(latestProgressEvent.created_at, .25)
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
+  const showPlanStatus = shouldShowPlanStatus(planStatus)
 
-    if (over && active.id !== over.id) {
-      const oldIndex = sectionOrder.indexOf(String(active.id));
-      const newIndex = sectionOrder.indexOf(String(over.id));
-      const reordered = arrayMove(sectionOrder, oldIndex, newIndex);
-
-      setSectionOrder(reordered);
-
-      fetch("/api/profile/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ home_section_order: reordered }),
-      });
-    }
-
-    setTimeout(() => {
-      isDraggingRef.current = false;
-    }, 50);
-  }
-
-  const getSchedDay = (i: number) => schedule.find((s) => s.day_of_week === i);
-
-  const latestProgressEvent = progressEvents[0];
+  const showWeeklyRecap =
+    weeklyRecap !== null && isWithinDays(weeklyRecap.created_at, 1)
 
   const SECTIONS: Record<string, React.ReactNode> = {
     calories: (
@@ -314,9 +218,9 @@ export default function HomeClient({
         <p className="text-neutral-400 text-xs mb-2">This Week</p>
         <div className="grid grid-cols-7 gap-0.5">
           {DAYS_SHORT.map((day, i) => {
-            const sd = getSchedDay(i);
-            const isGym = !!sd;
-            const isToday = i === todayDow;
+            const sd = getSchedDay(i)
+            const isGym = !!sd
+            const isToday = i === todayDow
 
             return (
               <div key={i} className="flex flex-col items-center">
@@ -337,7 +241,7 @@ export default function HomeClient({
                   )}
                 </div>
               </div>
-            );
+            )
           })}
         </div>
       </Link>
@@ -420,11 +324,11 @@ export default function HomeClient({
         </p>
       </Link>
     ),
-  };
+  }
 
   const gridSections = sectionOrder.filter(
-    (s) => s !== "progress" && SECTIONS[s]
-  );
+    (section) => section !== "progress" && SECTIONS[section]
+  )
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-5">
@@ -446,209 +350,180 @@ export default function HomeClient({
           </p>
         </div>
 
-        <Link
-          href="/stats?tab=badges"
-          className="block bg-gradient-to-br from-teal-950/80 via-neutral-900 to-neutral-900 rounded-2xl border border-teal-800/70 p-5 mb-4 hover:border-teal-500 transition-colors shadow-lg shadow-teal-950/20"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-teal-500/10 border border-teal-700/60 flex items-center justify-center text-2xl flex-shrink-0">
-              {latestProgressEvent?.emoji ?? "✨"}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <p className="text-xs font-medium text-teal-300 uppercase tracking-wide">
-                  Progress Story
-                </p>
-                <p className="text-xs text-neutral-500">View badges →</p>
-              </div>
-
-              {latestProgressEvent ? (
-                <>
-                  <h2 className="text-lg font-bold text-white leading-snug">
-                    {latestProgressEvent.title}
-                  </h2>
-                  <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
-                    {latestProgressEvent.message}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-lg font-bold text-white leading-snug">
-                    Start building your story
-                  </h2>
-                  <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
-                    Log workouts, weight, steps, or goals and FitForge will
-                    start spotting your progress.
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-        </Link>
-
-        <div className="grid grid-cols-1 gap-3 mb-4">
+        {showProgressStory && latestProgressEvent && (
           <Link
-            href="/workouts"
-            className={`block rounded-2xl border p-5 transition-colors ${
-              planStatus.status === "complete"
-                ? "bg-teal-600/10 border-teal-700/60 hover:border-teal-500"
-                : planStatus.status === "behind"
-                ? "bg-orange-950/30 border-orange-800/60 hover:border-orange-600"
-                : "bg-neutral-900 border-neutral-800 hover:border-teal-700"
-            }`}
+            href="/stats?tab=badges"
+            className="block bg-gradient-to-br from-teal-950/80 via-neutral-900 to-neutral-900 rounded-2xl border border-teal-800/70 p-5 mb-4 hover:border-teal-500 transition-colors shadow-lg shadow-teal-950/20"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-2xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-2xl flex-shrink-0">
-                  {planStatus.emoji}
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-                    Plan Status
-                  </p>
-                  <h2 className="text-lg font-bold text-white leading-snug">
-                    {planStatus.title}
-                  </h2>
-                  <p className="text-sm text-neutral-400 mt-1">
-                    {planStatus.message}
-                  </p>
-                </div>
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-teal-500/10 border border-teal-700/60 flex items-center justify-center text-2xl flex-shrink-0">
+                {latestProgressEvent.emoji ?? "✨"}
               </div>
 
-              {planStatus.weeklyTarget > 0 && (
-                <div className="text-right flex-shrink-0">
-                  <p className="text-2xl font-bold text-teal-400">
-                    {planStatus.completedThisWeek}/{planStatus.weeklyTarget}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <p className="text-xs font-medium text-teal-300 uppercase tracking-wide">
+                    Progress Story
                   </p>
-                  <p className="text-xs text-neutral-500">this week</p>
+                  <p className="text-xs text-neutral-500">View badges →</p>
                 </div>
-              )}
+
+                <h2 className="text-lg font-bold text-white leading-snug">
+                  {latestProgressEvent.title}
+                </h2>
+                <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
+                  {latestProgressEvent.message}
+                </p>
+              </div>
             </div>
+          </Link>
+        )}
 
-            {planStatus.weeklyTarget > 0 && (
-              <div className="mt-4">
-                <div className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-2 bg-teal-500 rounded-full"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        (planStatus.completedThisWeek /
-                          planStatus.weeklyTarget) *
-                          100
-                      )}%`,
-                    }}
-                  />
+        {(showPlanStatus || showWeeklyRecap) && (
+          <div className="grid grid-cols-1 gap-3 mb-4">
+            {showPlanStatus && (
+              <Link
+                href="/workouts"
+                className={`block rounded-2xl border p-5 transition-colors ${
+                  planStatus.status === "complete"
+                    ? "bg-teal-600/10 border-teal-700/60 hover:border-teal-500"
+                    : planStatus.status === "behind"
+                      ? "bg-orange-950/30 border-orange-800/60 hover:border-orange-600"
+                      : "bg-neutral-900 border-neutral-800 hover:border-teal-700"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-2xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-2xl flex-shrink-0">
+                      {planStatus.emoji}
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                        Plan Status
+                      </p>
+                      <h2 className="text-lg font-bold text-white leading-snug">
+                        {planStatus.title}
+                      </h2>
+                      <p className="text-sm text-neutral-400 mt-1">
+                        {planStatus.message}
+                      </p>
+                    </div>
+                  </div>
+
+                  {planStatus.weeklyTarget > 0 && (
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-2xl font-bold text-teal-400">
+                        {planStatus.completedThisWeek}/{planStatus.weeklyTarget}
+                      </p>
+                      <p className="text-xs text-neutral-500">this week</p>
+                    </div>
+                  )}
                 </div>
 
-                {planStatus.streakWeeks > 0 && (
-                  <p className="text-xs text-neutral-500 mt-2">
-                    🔥 {planStatus.streakWeeks}-week workout streak
+                {planStatus.weeklyTarget > 0 && (
+                  <div className="mt-4">
+                    <div className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-2 bg-teal-500 rounded-full"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (planStatus.completedThisWeek /
+                              planStatus.weeklyTarget) *
+                              100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    {planStatus.streakWeeks > 0 && (
+                      <p className="text-xs text-neutral-500 mt-2">
+                        🔥 {planStatus.streakWeeks}-week workout streak
+                      </p>
+                    )}
+                  </div>
+                )}
+              </Link>
+            )}
+
+            {showWeeklyRecap && weeklyRecap && (
+              <Link
+                href="/stats"
+                className="block rounded-2xl border border-neutral-800 bg-neutral-900 p-5 hover:border-teal-700 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                      Weekly Recap
+                    </p>
+                    <h2 className="text-lg font-bold text-white">
+                      {weeklyRecap.emoji ?? "📅"} {weeklyRecap.title}
+                    </h2>
+                  </div>
+                  <p className="text-xs text-neutral-500">View stats →</p>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="rounded-xl bg-neutral-800 p-2">
+                    <p className="text-lg font-bold text-teal-400">
+                      {weeklyRecap.workouts}
+                    </p>
+                    <p className="text-[10px] text-neutral-500">workouts</p>
+                  </div>
+
+                  <div className="rounded-xl bg-neutral-800 p-2">
+                    <p className="text-lg font-bold text-white">
+                      {weeklyRecap.volume.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-neutral-500">kg</p>
+                  </div>
+
+                  <div className="rounded-xl bg-neutral-800 p-2">
+                    <p className="text-lg font-bold text-white">
+                      {weeklyRecap.steps.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-neutral-500">steps</p>
+                  </div>
+
+                  <div className="rounded-xl bg-neutral-800 p-2">
+                    <p className="text-lg font-bold text-white">
+                      {weeklyRecap.goals}
+                    </p>
+                    <p className="text-[10px] text-neutral-500">goals</p>
+                  </div>
+                </div>
+
+                {weeklyRecap.weightChange !== null && (
+                  <p className="text-xs text-neutral-500 mt-3">
+                    Weight trend:{" "}
+                    <span
+                      className={
+                        weeklyRecap.weightChange < 0
+                          ? "text-teal-400"
+                          : weeklyRecap.weightChange > 0
+                            ? "text-orange-400"
+                            : "text-neutral-400"
+                      }
+                    >
+                      {weeklyRecap.weightChange > 0 ? "+" : ""}
+                      {weeklyRecap.weightChange}kg
+                    </span>
                   </p>
                 )}
-              </div>
+              </Link>
             )}
-          </Link>
+          </div>
+        )}
 
-          {weeklyRecap && (
-            <Link
-              href="/stats"
-              className="block rounded-2xl border border-neutral-800 bg-neutral-900 p-5 hover:border-teal-700 transition-colors"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-                    Weekly Recap
-                  </p>
-                  <h2 className="text-lg font-bold text-white">
-                    {weeklyRecap.emoji ?? "📅"} {weeklyRecap.title}
-                  </h2>
-                </div>
-                <p className="text-xs text-neutral-500">View stats →</p>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="rounded-xl bg-neutral-800 p-2">
-                  <p className="text-lg font-bold text-teal-400">
-                    {weeklyRecap.workouts}
-                  </p>
-                  <p className="text-[10px] text-neutral-500">workouts</p>
-                </div>
-
-                <div className="rounded-xl bg-neutral-800 p-2">
-                  <p className="text-lg font-bold text-white">
-                    {weeklyRecap.volume.toLocaleString()}
-                  </p>
-                  <p className="text-[10px] text-neutral-500">kg</p>
-                </div>
-
-                <div className="rounded-xl bg-neutral-800 p-2">
-                  <p className="text-lg font-bold text-white">
-                    {weeklyRecap.steps.toLocaleString()}
-                  </p>
-                  <p className="text-[10px] text-neutral-500">steps</p>
-                </div>
-
-                <div className="rounded-xl bg-neutral-800 p-2">
-                  <p className="text-lg font-bold text-white">
-                    {weeklyRecap.goals}
-                  </p>
-                  <p className="text-[10px] text-neutral-500">goals</p>
-                </div>
-              </div>
-
-              {weeklyRecap.weightChange !== null && (
-                <p className="text-xs text-neutral-500 mt-3">
-                  Weight trend:{" "}
-                  <span
-                    className={
-                      weeklyRecap.weightChange < 0
-                        ? "text-teal-400"
-                        : weeklyRecap.weightChange > 0
-                        ? "text-orange-400"
-                        : "text-neutral-400"
-                    }
-                  >
-                    {weeklyRecap.weightChange > 0 ? "+" : ""}
-                    {weeklyRecap.weightChange}kg
-                  </span>
-                </p>
-              )}
-            </Link>
-          )}
-        </div>
-        <p className="text-xs text-neutral-600 mb-2 text-center">
-          Press and hold a card to rearrange
-        </p>
-        <DndContext
-          id="home-dnd"
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={gridSections} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-2 gap-3 auto-rows-fr">
-              {gridSections.map((id) => (
-                <SortableSection
-                  key={id}
-                  id={id}
-                  onClickCapture={(e) => {
-                    if (isDraggingRef.current) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }
-                  }}
-                >
-                  {SECTIONS[id]}
-                </SortableSection>
-              ))}
+        <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+          {gridSections.map((id) => (
+            <div key={id} className="h-full">
+              {SECTIONS[id]}
             </div>
-          </SortableContext>
-        </DndContext>
+          ))}
+        </div>
       </div>
     </main>
-  );
+  )
 }

@@ -88,6 +88,7 @@ type ProgressEventRow = {
   message: string
   emoji: string | null
   event_type: string
+  created_at: string
 }
 
 type PlanStatus = {
@@ -177,7 +178,7 @@ export default async function HomePage() {
       LIMIT 1
     `,
     sql`
-      SELECT id, event_type, title, message, emoji
+      SELECT id, event_type, title, message, emoji, created_at
       FROM progress_events
       WHERE user_id = ${userId}
       ORDER BY created_at DESC
