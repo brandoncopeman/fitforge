@@ -18,6 +18,42 @@ export type BadgeProgress = {
   target: number
 }
 
+async function getWorkoutWeekStreak(userId: string) {
+  const rows = await sql`
+    SELECT DISTINCT DATE_TRUNC('week', performed_at)::date AS week
+    FROM workouts
+    WHERE user_id = ${userId}
+      AND duration_minutes IS NOT NULL
+    ORDER BY week DESC
+    LIMIT 52
+  `
+
+  const workoutWeeks = new Set(
+    rows.map((row) => new Date(row.week).toISOString().slice(0, 10))
+  )
+
+  let streak = 0
+  const cursor = new Date()
+  const day = cursor.getDay()
+  const diff = cursor.getDate() - day + (day === 0 ? -6 : 1)
+
+  cursor.setDate(diff)
+  cursor.setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < 52; i++) {
+    const key = cursor.toISOString().slice(0, 10)
+
+    if (!workoutWeeks.has(key)) {
+      break
+    }
+
+    streak++
+    cursor.setDate(cursor.getDate() - 7)
+  }
+
+  return streak
+}
+
 export async function unlockBadge(input: UnlockBadgeInput) {
   const {
     userId,
@@ -127,6 +163,7 @@ export async function getBadgeProgress(userId: string): Promise<BadgeProgress[]>
   const goalCompletionCount = Number(goalCompletionRows[0]?.count ?? 0)
   const weightLogCount = Number(weightRows[0]?.count ?? 0)
   const progressStoryCount = Number(progressStoryRows[0]?.count ?? 0)
+  const workoutWeekStreak = await getWorkoutWeekStreak(userId)
 
   return [
     {
@@ -152,6 +189,22 @@ export async function getBadgeProgress(userId: string): Promise<BadgeProgress[]>
       emoji: "🏋️",
       current: workoutCount,
       target: 10,
+    },
+    {
+      badge_key: "two_week_workout_streak",
+      title: "Two-Week Streak",
+      description: "Complete workouts two weeks in a row.",
+      emoji: "🔥",
+      current: workoutWeekStreak,
+      target: 2,
+    },
+    {
+      badge_key: "four_week_workout_streak",
+      title: "Four-Week Streak",
+      description: "Complete workouts four weeks in a row.",
+      emoji: "🔥",
+      current: workoutWeekStreak,
+      target: 4,
     },
     {
       badge_key: "first_step_goal",

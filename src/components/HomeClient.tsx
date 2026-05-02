@@ -22,8 +22,6 @@ import { CSS } from "@dnd-kit/utilities";
 
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/* ================= TYPES ================= */
-
 type Profile = {
   display_name?: string;
   daily_calorie_target: number;
@@ -55,7 +53,29 @@ type ProgressEvent = {
   event_type: string;
 };
 
-/* ================= SORTABLE ================= */
+type PlanStatus = {
+  weeklyTarget: number;
+  completedThisWeek: number;
+  remainingThisWeek: number;
+  status: "no_plan" | "on_track" | "behind" | "complete";
+  title: string;
+  message: string;
+  emoji: string;
+  streakWeeks: number;
+};
+
+type WeeklyRecapSummary = {
+  id: string;
+  title: string;
+  message: string;
+  emoji: string | null;
+  workouts: number;
+  volume: number;
+  steps: number;
+  goals: number;
+  weightChange: number | null;
+  created_at: string;
+} | null;
 
 function SortableSection({
   id,
@@ -66,6 +86,9 @@ function SortableSection({
   children: React.ReactNode;
   onClickCapture: (e: React.MouseEvent) => void;
 }) {
+  const [pressing, setPressing] = useState(false);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const {
     attributes,
     listeners,
@@ -78,9 +101,28 @@ function SortableSection({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
+    opacity: isDragging ? 0.65 : 1,
     zIndex: isDragging ? 10 : undefined,
   };
+
+  function startPressHint() {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+    }
+
+    pressTimerRef.current = setTimeout(() => {
+      setPressing(true);
+    }, 250);
+  }
+
+  function stopPressHint() {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+
+    setPressing(false);
+  }
 
   return (
     <div
@@ -88,15 +130,19 @@ function SortableSection({
       style={style}
       {...attributes}
       {...listeners}
+      onPointerDown={startPressHint}
+      onPointerUp={stopPressHint}
+      onPointerCancel={stopPressHint}
+      onPointerLeave={stopPressHint}
       onClickCapture={onClickCapture}
-      className="cursor-grab active:cursor-grabbing touch-none h-full"
+      className={`h-full touch-none select-none ${
+        isDragging ? "cursor-grabbing" : "cursor-pointer active:cursor-grab"
+      } ${pressing || isDragging ? "home-card-pulse" : ""}`}
     >
       {children}
     </div>
   );
 }
-
-/* ================= MAIN ================= */
 
 export default function HomeClient({
   profile,
@@ -108,6 +154,8 @@ export default function HomeClient({
   nextTemplate,
   sectionOrder: initialOrder,
   progressEvents,
+  planStatus,
+  weeklyRecap,
 }: {
   profile: Profile;
   caloriesConsumed: number;
@@ -118,16 +166,24 @@ export default function HomeClient({
   nextTemplate: WorkoutTemplate | null;
   sectionOrder: string[];
   progressEvents: ProgressEvent[];
+  planStatus: PlanStatus;
+  weeklyRecap: WeeklyRecapSummary;
 }) {
   const [sectionOrder, setSectionOrder] = useState(initialOrder);
-
-  // Prevent link click after dragging
   const isDraggingRef = useRef(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 500,
+        tolerance: 8,
+      },
+    }),
     useSensor(TouchSensor, {
-      activationConstraint: { delay: 300, tolerance: 5 },
+      activationConstraint: {
+        delay: 500,
+        tolerance: 8,
+      },
     })
   );
 
@@ -152,7 +208,6 @@ export default function HomeClient({
       });
     }
 
-    // Prevent click after drag
     setTimeout(() => {
       isDraggingRef.current = false;
     }, 50);
@@ -183,7 +238,9 @@ export default function HomeClient({
             style={{
               width: `${Math.min(
                 100,
-                (caloriesConsumed / profile.daily_calorie_target) * 100
+                profile.daily_calorie_target > 0
+                  ? (caloriesConsumed / profile.daily_calorie_target) * 100
+                  : 0
               )}%`,
             }}
           />
@@ -365,8 +422,6 @@ export default function HomeClient({
     ),
   };
 
-  // Keep "progress" out of the draggable grid.
-  // It is rendered as a fixed full-width card under the welcome card.
   const gridSections = sectionOrder.filter(
     (s) => s !== "progress" && SECTIONS[s]
   );
@@ -432,6 +487,141 @@ export default function HomeClient({
           </div>
         </Link>
 
+        <div className="grid grid-cols-1 gap-3 mb-4">
+          <Link
+            href="/workouts"
+            className={`block rounded-2xl border p-5 transition-colors ${
+              planStatus.status === "complete"
+                ? "bg-teal-600/10 border-teal-700/60 hover:border-teal-500"
+                : planStatus.status === "behind"
+                ? "bg-orange-950/30 border-orange-800/60 hover:border-orange-600"
+                : "bg-neutral-900 border-neutral-800 hover:border-teal-700"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-2xl flex-shrink-0">
+                  {planStatus.emoji}
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                    Plan Status
+                  </p>
+                  <h2 className="text-lg font-bold text-white leading-snug">
+                    {planStatus.title}
+                  </h2>
+                  <p className="text-sm text-neutral-400 mt-1">
+                    {planStatus.message}
+                  </p>
+                </div>
+              </div>
+
+              {planStatus.weeklyTarget > 0 && (
+                <div className="text-right flex-shrink-0">
+                  <p className="text-2xl font-bold text-teal-400">
+                    {planStatus.completedThisWeek}/{planStatus.weeklyTarget}
+                  </p>
+                  <p className="text-xs text-neutral-500">this week</p>
+                </div>
+              )}
+            </div>
+
+            {planStatus.weeklyTarget > 0 && (
+              <div className="mt-4">
+                <div className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-2 bg-teal-500 rounded-full"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (planStatus.completedThisWeek /
+                          planStatus.weeklyTarget) *
+                          100
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                {planStatus.streakWeeks > 0 && (
+                  <p className="text-xs text-neutral-500 mt-2">
+                    🔥 {planStatus.streakWeeks}-week workout streak
+                  </p>
+                )}
+              </div>
+            )}
+          </Link>
+
+          {weeklyRecap && (
+            <Link
+              href="/stats"
+              className="block rounded-2xl border border-neutral-800 bg-neutral-900 p-5 hover:border-teal-700 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                    Weekly Recap
+                  </p>
+                  <h2 className="text-lg font-bold text-white">
+                    {weeklyRecap.emoji ?? "📅"} {weeklyRecap.title}
+                  </h2>
+                </div>
+                <p className="text-xs text-neutral-500">View stats →</p>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="rounded-xl bg-neutral-800 p-2">
+                  <p className="text-lg font-bold text-teal-400">
+                    {weeklyRecap.workouts}
+                  </p>
+                  <p className="text-[10px] text-neutral-500">workouts</p>
+                </div>
+
+                <div className="rounded-xl bg-neutral-800 p-2">
+                  <p className="text-lg font-bold text-white">
+                    {weeklyRecap.volume.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-neutral-500">kg</p>
+                </div>
+
+                <div className="rounded-xl bg-neutral-800 p-2">
+                  <p className="text-lg font-bold text-white">
+                    {weeklyRecap.steps.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-neutral-500">steps</p>
+                </div>
+
+                <div className="rounded-xl bg-neutral-800 p-2">
+                  <p className="text-lg font-bold text-white">
+                    {weeklyRecap.goals}
+                  </p>
+                  <p className="text-[10px] text-neutral-500">goals</p>
+                </div>
+              </div>
+
+              {weeklyRecap.weightChange !== null && (
+                <p className="text-xs text-neutral-500 mt-3">
+                  Weight trend:{" "}
+                  <span
+                    className={
+                      weeklyRecap.weightChange < 0
+                        ? "text-teal-400"
+                        : weeklyRecap.weightChange > 0
+                        ? "text-orange-400"
+                        : "text-neutral-400"
+                    }
+                  >
+                    {weeklyRecap.weightChange > 0 ? "+" : ""}
+                    {weeklyRecap.weightChange}kg
+                  </span>
+                </p>
+              )}
+            </Link>
+          )}
+        </div>
+        <p className="text-xs text-neutral-600 mb-2 text-center">
+          Press and hold a card to rearrange
+        </p>
         <DndContext
           id="home-dnd"
           sensors={sensors}

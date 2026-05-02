@@ -15,7 +15,40 @@ function average(values: number[]) {
 function roundToOne(value: number) {
   return Math.round(value * 10) / 10
 }
+async function getWorkoutWeekStreak(userId: string) {
+  const rows = await sql`
+    SELECT DISTINCT DATE_TRUNC('week', performed_at)::date AS week
+    FROM workouts
+    WHERE user_id = ${userId}
+      AND duration_minutes IS NOT NULL
+    ORDER BY week DESC
+    LIMIT 52
+  `
 
+  const workoutWeeks = new Set(
+    rows.map((row) => new Date(row.week).toISOString().slice(0, 10))
+  )
+
+  let streak = 0
+  const cursor = new Date()
+  const day = cursor.getDay()
+  const diff = cursor.getDate() - day + (day === 0 ? -6 : 1)
+  cursor.setDate(diff)
+  cursor.setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < 52; i++) {
+    const key = cursor.toISOString().slice(0, 10)
+
+    if (!workoutWeeks.has(key)) {
+      break
+    }
+
+    streak++
+    cursor.setDate(cursor.getDate() - 7)
+  }
+
+  return streak
+}
 async function unlockFirstProgressStoryBadge(userId: string) {
   await unlockBadge({
     userId,
@@ -475,6 +508,7 @@ export async function generateWeeklyRecap(userId: string) {
   const volume = Math.round(Number(volumeRows[0]?.volume ?? 0))
   const steps = Number(stepRows[0]?.steps ?? 0)
   const goals = Number(goalRows[0]?.count ?? 0)
+  const workoutWeekStreak = await getWorkoutWeekStreak(userId)
 
   const weights = (weightRows as WeightLog[])
     .map((log) => Number(log.weight_kg))
@@ -490,16 +524,35 @@ export async function generateWeeklyRecap(userId: string) {
   }
 
   await unlockFirstProgressStoryBadge(userId)
+if (workoutWeekStreak >= 2) {
+  await unlockBadge({
+    userId,
+    badgeKey: "two_week_workout_streak",
+    title: "Two-Week Streak",
+    description: "Completed workouts two weeks in a row.",
+    emoji: "🔥",
+  })
+}
 
-  const parts = [
-    workouts > 0 ? `${workouts} workout${workouts === 1 ? "" : "s"}` : null,
-    volume > 0 ? `${volume.toLocaleString()}kg lifted` : null,
-    steps > 0 ? `${steps.toLocaleString()} steps` : null,
-    goals > 0 ? `${goals} goal completion${goals === 1 ? "" : "s"}` : null,
-    weightChange !== null && weightChange !== 0
-      ? `${weightChange > 0 ? "+" : ""}${weightChange}kg weight trend`
-      : null,
-  ].filter(Boolean)
+if (workoutWeekStreak >= 4) {
+  await unlockBadge({
+    userId,
+    badgeKey: "four_week_workout_streak",
+    title: "Four-Week Streak",
+    description: "Completed workouts four weeks in a row.",
+    emoji: "🔥",
+  })
+}
+const parts = [
+  workouts > 0 ? `${workouts} workout${workouts === 1 ? "" : "s"}` : null,
+  volume > 0 ? `${volume.toLocaleString()}kg lifted` : null,
+  steps > 0 ? `${steps.toLocaleString()} steps` : null,
+  goals > 0 ? `${goals} goal completion${goals === 1 ? "" : "s"}` : null,
+  workoutWeekStreak > 1 ? `${workoutWeekStreak}-week workout streak` : null,
+  weightChange !== null && weightChange !== 0
+    ? `${weightChange > 0 ? "+" : ""}${weightChange}kg weight trend`
+    : null,
+].filter(Boolean)
 
   return createProgressEvent({
     userId,
@@ -516,6 +569,7 @@ export async function generateWeeklyRecap(userId: string) {
       steps,
       goals,
       weightChange,
+      workoutWeekStreak,
     },
   })
 }

@@ -6,12 +6,20 @@ import BottomNav from "@/components/BottomNav"
 import ProgressToastListener from "@/components/ProgressToastListener"
 import "./globals.css"
 import { Toaster } from "sonner"
+import PWARegister from "@/components/PWARegister"
 
 const geist = Geist({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "FitForge",
   description: "Your personal fitness tracker",
+  manifest: "/manifest.json",
+  themeColor: "#0d9488",
+  appleWebApp: {
+    capable: true,
+    title: "FitForge",
+    statusBarStyle: "black-translucent",
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -20,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en">
         <body className={`${geist.className} bg-neutral-950 text-white min-h-screen pb-20`}>
           {children}
-
+          <PWARegister />
           <ProgressToastListener />
 
           <Suspense

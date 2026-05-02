@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import sql from "@/lib/db"
 import HomeClient from "@/components/HomeClient"
+import { getLatestWeeklyRecap, getPlanStatus } from "@/lib/plan-insights"
 
 const QUOTES = [
   { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
@@ -89,6 +90,30 @@ type ProgressEventRow = {
   event_type: string
 }
 
+type PlanStatus = {
+  weeklyTarget: number
+  completedThisWeek: number
+  remainingThisWeek: number
+  status: "no_plan" | "on_track" | "behind" | "complete"
+  title: string
+  message: string
+  emoji: string
+  streakWeeks: number
+}
+
+type WeeklyRecapSummary = {
+  id: string
+  title: string
+  message: string
+  emoji: string | null
+  workouts: number
+  volume: number
+  steps: number
+  goals: number
+  weightChange: number | null
+  created_at: string
+} | null
+
 const DEFAULT_SECTION_ORDER = [
   "progress",
   "calories",
@@ -113,6 +138,8 @@ export default async function HomePage() {
     todayStepsRows,
     latestWeightRows,
     progressEvents,
+    planStatus,
+    weeklyRecap,
   ] = await Promise.all([
     sql`SELECT * FROM profiles WHERE id = ${userId}`,
     sql`
@@ -156,6 +183,8 @@ export default async function HomePage() {
       ORDER BY created_at DESC
       LIMIT 3
     `,
+    getPlanStatus(userId),
+    getLatestWeeklyRecap(userId),
   ])
 
   const profile = profileRows[0] as ProfileRow | undefined
@@ -167,6 +196,8 @@ export default async function HomePage() {
   const typedPlanTemplates = planTemplates as WorkoutTemplateRow[]
   const typedSchedule = schedule as ScheduleRow[]
   const typedProgressEvents = progressEvents as ProgressEventRow[]
+  const typedPlanStatus = planStatus as PlanStatus
+  const typedWeeklyRecap = weeklyRecap as WeeklyRecapSummary
 
   const lastPlanIndex = profile.last_plan_index ?? -1
   const nextPlanIndex =
@@ -209,6 +240,8 @@ export default async function HomePage() {
       nextTemplate={nextTemplate}
       sectionOrder={profile.home_section_order || DEFAULT_SECTION_ORDER}
       progressEvents={typedProgressEvents}
+      planStatus={typedPlanStatus}
+      weeklyRecap={typedWeeklyRecap}
     />
   )
 }
