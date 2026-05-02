@@ -28,6 +28,7 @@ const ALL_NAV_OPTIONS = [
   { id: "macros", label: "Macros" },
   { id: "steps", label: "Steps" },
   { id: "schedule", label: "Schedule" },
+  { id: "goals", label: "Goals" },
 ]
 
 export default function ProfileClient({

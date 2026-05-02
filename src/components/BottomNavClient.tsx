@@ -98,6 +98,18 @@ const ALL_NAV_ITEMS = [
     ),
   },
   {
+    id: "goals",
+    href: "/goals",
+    label: "Goals",
+    icon: () => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="6" />
+        <circle cx="12" cy="12" r="2" />
+      </svg>
+    ),
+  },
+  {
     id: "profile",
     href: "/profile",
     label: "Profile",
