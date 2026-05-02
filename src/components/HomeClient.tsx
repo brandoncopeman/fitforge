@@ -1,78 +1,79 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { UserButton } from "@clerk/nextjs"
+import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 
-const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type Profile = {
-  display_name?: string
-  daily_calorie_target: number
-  daily_protein_target: number
-  daily_step_target?: number
-  show_weight_on_home?: boolean
+  display_name?: string;
+  daily_calorie_target: number;
+  daily_protein_target: number;
+  daily_step_target?: number;
+  show_weight_on_home?: boolean;
   daily_quote?: {
-    text?: string
-    author?: string
-  }
-}
+    text?: string;
+    author?: string;
+  };
+};
 
 type ScheduleItem = {
-  day_of_week: number
-  template_name?: string | null
-}
+  day_of_week: number;
+  template_name?: string | null;
+};
 
 type WorkoutTemplate = {
-  id: string | number
-  name: string
-  exercise_count?: number | null
-}
+  id: string | number;
+  name: string;
+  exercise_count?: number | null;
+};
 
 type ProgressEvent = {
-  id: string
-  title: string
-  message: string
-  emoji: string | null
-  event_type: string
-  created_at: string
-}
+  id: string;
+  title: string;
+  message: string;
+  emoji: string | null;
+  event_type: string;
+  created_at: string;
+};
 
 type PlanStatus = {
-  weeklyTarget: number
-  completedThisWeek: number
-  remainingThisWeek: number
-  status: "no_plan" | "on_track" | "behind" | "complete"
-  title: string
-  message: string
-  emoji: string
-  streakWeeks: number
-}
+  weeklyTarget: number;
+  completedThisWeek: number;
+  remainingThisWeek: number;
+  status: "no_plan" | "on_track" | "behind" | "complete";
+  title: string;
+  message: string;
+  emoji: string;
+  streakWeeks: number;
+};
 
 type WeeklyRecapSummary = {
-  id: string
-  title: string
-  message: string
-  emoji: string | null
-  workouts: number
-  volume: number
-  steps: number
-  goals: number
-  weightChange: number | null
-  created_at: string
-} | null
+  id: string;
+  title: string;
+  message: string;
+  emoji: string | null;
+  workouts: number;
+  volume: number;
+  averageDailyCalories: number;
+  steps: number;
+  goals: number;
+  weightChange: number | null;
+  created_at: string;
+} | null;
 
 function isWithinDays(dateString: string, days: number) {
-  const date = new Date(dateString)
+  const date = new Date(dateString);
 
   if (Number.isNaN(date.getTime())) {
-    return false
+    return false;
   }
 
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = diffMs / (1000 * 60 * 60 * 24)
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
-  return diffDays >= 0 && diffDays <= days
+  return diffDays >= 0 && diffDays <= days;
 }
 
 function shouldShowPlanStatus(status: PlanStatus) {
@@ -80,7 +81,7 @@ function shouldShowPlanStatus(status: PlanStatus) {
     status.status === "behind" ||
     status.status === "complete" ||
     status.status === "no_plan"
-  )
+  );
 }
 
 export default function HomeClient({
@@ -96,30 +97,30 @@ export default function HomeClient({
   planStatus,
   weeklyRecap,
 }: {
-  profile: Profile
-  caloriesConsumed: number
-  todaySteps: number
-  latestWeight: number | null
-  schedule: ScheduleItem[]
-  todayDow: number
-  nextTemplate: WorkoutTemplate | null
-  sectionOrder: string[]
-  progressEvents: ProgressEvent[]
-  planStatus: PlanStatus
-  weeklyRecap: WeeklyRecapSummary
+  profile: Profile;
+  caloriesConsumed: number;
+  todaySteps: number;
+  latestWeight: number | null;
+  schedule: ScheduleItem[];
+  todayDow: number;
+  nextTemplate: WorkoutTemplate | null;
+  sectionOrder: string[];
+  progressEvents: ProgressEvent[];
+  planStatus: PlanStatus;
+  weeklyRecap: WeeklyRecapSummary;
 }) {
-  const getSchedDay = (i: number) => schedule.find((s) => s.day_of_week === i)
+  const getSchedDay = (i: number) => schedule.find((s) => s.day_of_week === i);
 
-  const latestProgressEvent = progressEvents[0]
+  const latestProgressEvent = progressEvents[0];
 
   const showProgressStory =
     latestProgressEvent !== undefined &&
-    isWithinDays(latestProgressEvent.created_at, .25)
+    isWithinDays(latestProgressEvent.created_at, 0.25);
 
-  const showPlanStatus = shouldShowPlanStatus(planStatus)
+  const showPlanStatus = shouldShowPlanStatus(planStatus);
 
   const showWeeklyRecap =
-    weeklyRecap !== null && isWithinDays(weeklyRecap.created_at, 1)
+    weeklyRecap !== null && isWithinDays(weeklyRecap.created_at, 1);
 
   const SECTIONS: Record<string, React.ReactNode> = {
     calories: (
@@ -218,9 +219,9 @@ export default function HomeClient({
         <p className="text-neutral-400 text-xs mb-2">This Week</p>
         <div className="grid grid-cols-7 gap-0.5">
           {DAYS_SHORT.map((day, i) => {
-            const sd = getSchedDay(i)
-            const isGym = !!sd
-            const isToday = i === todayDow
+            const sd = getSchedDay(i);
+            const isGym = !!sd;
+            const isToday = i === todayDow;
 
             return (
               <div key={i} className="flex flex-col items-center">
@@ -241,7 +242,7 @@ export default function HomeClient({
                   )}
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       </Link>
@@ -324,11 +325,11 @@ export default function HomeClient({
         </p>
       </Link>
     ),
-  }
+  };
 
   const gridSections = sectionOrder.filter(
     (section) => section !== "progress" && SECTIONS[section]
-  )
+  );
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-5">
@@ -388,8 +389,8 @@ export default function HomeClient({
                   planStatus.status === "complete"
                     ? "bg-teal-600/10 border-teal-700/60 hover:border-teal-500"
                     : planStatus.status === "behind"
-                      ? "bg-orange-950/30 border-orange-800/60 hover:border-orange-600"
-                      : "bg-neutral-900 border-neutral-800 hover:border-teal-700"
+                    ? "bg-orange-950/30 border-orange-800/60 hover:border-orange-600"
+                    : "bg-neutral-900 border-neutral-800 hover:border-teal-700"
                 }`}
               >
                 <div className="flex items-start justify-between gap-4">
@@ -474,9 +475,9 @@ export default function HomeClient({
 
                   <div className="rounded-xl bg-neutral-800 p-2">
                     <p className="text-lg font-bold text-white">
-                      {weeklyRecap.volume.toLocaleString()}
+                      {weeklyRecap.averageDailyCalories.toLocaleString()}
                     </p>
-                    <p className="text-[10px] text-neutral-500">kg</p>
+                    <p className="text-[10px] text-neutral-500">avg kcal</p>
                   </div>
 
                   <div className="rounded-xl bg-neutral-800 p-2">
@@ -502,8 +503,8 @@ export default function HomeClient({
                         weeklyRecap.weightChange < 0
                           ? "text-teal-400"
                           : weeklyRecap.weightChange > 0
-                            ? "text-orange-400"
-                            : "text-neutral-400"
+                          ? "text-orange-400"
+                          : "text-neutral-400"
                       }
                     >
                       {weeklyRecap.weightChange > 0 ? "+" : ""}
@@ -525,5 +526,5 @@ export default function HomeClient({
         </div>
       </div>
     </main>
-  )
+  );
 }

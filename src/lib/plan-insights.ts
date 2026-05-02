@@ -18,6 +18,7 @@ export type WeeklyRecapSummary = {
   emoji: string | null
   workouts: number
   volume: number
+  averageDailyCalories: number
   steps: number
   goals: number
   weightChange: number | null
@@ -179,6 +180,7 @@ export async function getLatestWeeklyRecap(userId: string): Promise<WeeklyRecapS
     emoji: row.emoji,
     workouts: Number(metadata.workouts ?? 0),
     volume: Number(metadata.volume ?? 0),
+    averageDailyCalories: Number(metadata.averageDailyCalories ?? 0),
     steps: Number(metadata.steps ?? 0),
     goals: Number(metadata.goals ?? 0),
     weightChange:

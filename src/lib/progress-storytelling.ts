@@ -466,8 +466,7 @@ export async function generateWeeklyRecap(userId: string) {
 
   const weekKey = weekRows[0]?.week_key ?? new Date().toISOString().slice(0, 10)
 
-  const [workoutRows, volumeRows, stepRows, goalRows, weightRows] = await Promise.all([
-    sql`
+  const [workoutRows, volumeRows, stepRows, goalRows, weightRows, calorieRows] = await Promise.all([    sql`
       SELECT COUNT(*)::int AS count
       FROM workouts
       WHERE user_id = ${userId}
@@ -496,18 +495,31 @@ export async function generateWeeklyRecap(userId: string) {
         AND completed_date >= date_trunc('week', now())::date
     `,
     sql`
-      SELECT weight_kg, log_date
-      FROM weight_logs
+    SELECT weight_kg, log_date
+    FROM weight_logs
+    WHERE user_id = ${userId}
+    ORDER BY log_date DESC
+    LIMIT 14
+  `,
+  sql`
+    SELECT COALESCE(AVG(daily_calories), 0) AS average_daily_calories
+    FROM (
+      SELECT log_date, SUM(calories) AS daily_calories
+      FROM food_entries
       WHERE user_id = ${userId}
-      ORDER BY log_date DESC
-      LIMIT 14
-    `,
-  ])
+        AND log_date >= date_trunc('week', now())::date
+      GROUP BY log_date
+    ) daily_totals
+  `,
+])
 
   const workouts = Number(workoutRows[0]?.count ?? 0)
   const volume = Math.round(Number(volumeRows[0]?.volume ?? 0))
   const steps = Number(stepRows[0]?.steps ?? 0)
   const goals = Number(goalRows[0]?.count ?? 0)
+  const averageDailyCalories = Math.round(
+    Number(calorieRows[0]?.average_daily_calories ?? 0)
+  )
   const workoutWeekStreak = await getWorkoutWeekStreak(userId)
 
   const weights = (weightRows as WeightLog[])
@@ -545,8 +557,10 @@ if (workoutWeekStreak >= 4) {
 }
 const parts = [
   workouts > 0 ? `${workouts} workout${workouts === 1 ? "" : "s"}` : null,
-  volume > 0 ? `${volume.toLocaleString()}kg lifted` : null,
-  steps > 0 ? `${steps.toLocaleString()} steps` : null,
+  averageDailyCalories > 0
+  ? `${averageDailyCalories.toLocaleString()} avg daily calories`
+  : null,
+    steps > 0 ? `${steps.toLocaleString()} steps` : null,
   goals > 0 ? `${goals} goal completion${goals === 1 ? "" : "s"}` : null,
   workoutWeekStreak > 1 ? `${workoutWeekStreak}-week workout streak` : null,
   weightChange !== null && weightChange !== 0
@@ -570,6 +584,7 @@ const parts = [
       goals,
       weightChange,
       workoutWeekStreak,
+      averageDailyCalories,
     },
   })
 }
