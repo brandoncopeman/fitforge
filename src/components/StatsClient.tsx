@@ -2,12 +2,41 @@
 
 import { useState } from "react"
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts"
 
 const TEAL = "#0d9488"
 const COLORS = ["#0d9488", "#0891b2", "#7c3aed", "#db2777", "#d97706", "#65a30d", "#dc2626"]
+
+type StatsTab = "overview" | "records" | "muscles" | "badges"
+
+type Badge = {
+  id: string
+  badge_key: string
+  title: string
+  description: string
+  emoji: string | null
+  unlocked_at: string
+}
+
+type BadgeProgress = {
+  badge_key: string
+  title: string
+  description: string
+  emoji: string
+  current: number
+  target: number
+}
 
 type Props = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,6 +53,9 @@ type Props = {
   weeklyVolume: any[]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   totals: any
+  badges: Badge[]
+  badgeProgress: BadgeProgress[]
+  initialTab: StatsTab
 }
 
 export default function StatsClient({
@@ -33,14 +65,24 @@ export default function StatsClient({
   muscleGroups,
   weeklyVolume,
   totals,
+  badges,
+  badgeProgress,
+  initialTab,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"overview" | "records" | "muscles">("overview")
+  const [activeTab, setActiveTab] = useState<StatsTab>(initialTab)
 
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "records", label: "PRs" },
     { id: "muscles", label: "Muscles" },
+    { id: "badges", label: "Badges" },
   ] as const
+
+  const unlockedBadgeKeys = new Set(badges.map((badge) => badge.badge_key))
+
+  const lockedBadges = badgeProgress.filter(
+    (badge) => !unlockedBadgeKeys.has(badge.badge_key)
+  )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const weeklyChartData = weeklyVolume.map((w: any) => ({
@@ -298,6 +340,109 @@ export default function StatsClient({
         </div>
       )}
 
+      {/* Badges Tab */}
+      {activeTab === "badges" && (
+        <div className="space-y-4">
+          <div className="bg-gradient-to-br from-teal-950/70 to-neutral-900 rounded-xl border border-teal-800/70 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-teal-300">Badges Collected</p>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Earned from workouts, goals, steps, weight trends, and progress stories.
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-bold text-white">{badges.length}</p>
+                <p className="text-xs text-neutral-500">earned</p>
+              </div>
+            </div>
+          </div>
+
+          {badges.length === 0 ? (
+            <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-5 text-center">
+              <p className="text-3xl mb-2">🏆</p>
+              <p className="font-semibold text-white">No badges yet</p>
+              <p className="text-sm text-neutral-500 mt-1">
+                Finish workouts, hit step goals, complete habits, and log weight to start collecting badges.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {badges.map((badge) => (
+                <div
+                  key={badge.id}
+                  className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 flex items-start gap-3"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-700/60 flex items-center justify-center text-2xl flex-shrink-0">
+                    {badge.emoji ?? "🏆"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white">{badge.title}</p>
+                    <p className="text-sm text-neutral-400 mt-0.5">{badge.description}</p>
+                    <p className="text-xs text-neutral-600 mt-2">
+                      Unlocked{" "}
+                      {new Date(badge.unlocked_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {lockedBadges.length > 0 && (
+            <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4">
+              <p className="text-sm font-medium mb-3">Coming Up</p>
+
+              <div className="grid grid-cols-1 gap-2">
+                {lockedBadges.slice(0, 6).map((badge) => {
+                  const progress = Math.min(100, (badge.current / badge.target) * 100)
+
+                  return (
+                    <div
+                      key={badge.badge_key}
+                      className="rounded-xl bg-neutral-800/50 p-3 opacity-80"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-xl grayscale">
+                          {badge.emoji}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-neutral-300">
+                                {badge.title}
+                              </p>
+                              <p className="text-xs text-neutral-500">
+                                {badge.description}
+                              </p>
+                            </div>
+
+                            <p className="text-xs text-neutral-500 flex-shrink-0">
+                              {Math.min(badge.current, badge.target)} / {badge.target}
+                            </p>
+                          </div>
+
+                          <div className="w-full h-1.5 bg-neutral-700 rounded-full mt-2 overflow-hidden">
+                            <div
+                              className="h-1.5 bg-teal-600 rounded-full"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

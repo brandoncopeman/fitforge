@@ -57,50 +57,158 @@ const QUOTES = [
   { text: "Winning isn't everything, but wanting to win is.", author: "Vince Lombardi" },
 ]
 
+type ProfileRow = {
+  display_name?: string
+  weight_kg?: number | string | null
+  goal?: string | null
+  daily_calorie_target?: number | null
+  daily_protein_target?: number | null
+  daily_step_target?: number | null
+  show_weight_on_home?: boolean | null
+  home_section_order?: string[] | null
+  last_plan_index?: number | null
+}
+
+type ScheduleRow = {
+  day_of_week: number
+  template_id?: string | null
+  template_name?: string | null
+}
+
+type WorkoutTemplateRow = {
+  id: string
+  name: string
+  exercise_count?: number | null
+}
+
+type ProgressEventRow = {
+  id: string
+  title: string
+  message: string
+  emoji: string | null
+  event_type: string
+}
+
+const DEFAULT_SECTION_ORDER = [
+  "progress",
+  "calories",
+  "protein",
+  "steps",
+  "schedule",
+  "workouts",
+  "stats",
+  "goals",
+  "next",
+]
+
 export default async function HomePage() {
   const { userId } = await auth()
   if (!userId) redirect("/sign-in")
 
-  const [profileRows, planTemplates, schedule, todayCalories, todayStepsRows, latestWeightRows] = await Promise.all([
+  const [
+    profileRows,
+    planTemplates,
+    schedule,
+    todayCalories,
+    todayStepsRows,
+    latestWeightRows,
+    progressEvents,
+  ] = await Promise.all([
     sql`SELECT * FROM profiles WHERE id = ${userId}`,
-    sql`SELECT * FROM workout_templates WHERE user_id = ${userId} AND in_plan = true ORDER BY plan_order ASC`,
+    sql`
+      SELECT wt.*, COUNT(te.id)::int AS exercise_count
+      FROM workout_templates wt
+      LEFT JOIN template_exercises te ON te.template_id = wt.id
+      WHERE wt.user_id = ${userId}
+        AND wt.in_plan = true
+      GROUP BY wt.id
+      ORDER BY wt.plan_order ASC
+    `,
     sql`
       SELECT gs.day_of_week, gs.template_id, wt.name as template_name
       FROM gym_schedule gs
       LEFT JOIN workout_templates wt ON gs.template_id = wt.id
       WHERE gs.user_id = ${userId}
     `,
-    sql`SELECT COALESCE(SUM(calories), 0) as total FROM food_entries WHERE user_id = ${userId} AND log_date = CURRENT_DATE`,
-    sql`SELECT steps FROM step_logs WHERE user_id = ${userId} AND log_date = CURRENT_DATE`,
-    sql`SELECT weight_kg FROM weight_logs WHERE user_id = ${userId} ORDER BY log_date DESC LIMIT 1`,
+    sql`
+      SELECT COALESCE(SUM(calories), 0) as total
+      FROM food_entries
+      WHERE user_id = ${userId}
+        AND log_date = CURRENT_DATE
+    `,
+    sql`
+      SELECT steps
+      FROM step_logs
+      WHERE user_id = ${userId}
+        AND log_date = CURRENT_DATE
+    `,
+    sql`
+      SELECT weight_kg
+      FROM weight_logs
+      WHERE user_id = ${userId}
+      ORDER BY log_date DESC
+      LIMIT 1
+    `,
+    sql`
+      SELECT id, event_type, title, message, emoji
+      FROM progress_events
+      WHERE user_id = ${userId}
+      ORDER BY created_at DESC
+      LIMIT 3
+    `,
   ])
 
-  const profile = profileRows[0]
-  if (!profile || !profile.weight_kg || !profile.goal) redirect("/onboarding")
+  const profile = profileRows[0] as ProfileRow | undefined
+
+  if (!profile || !profile.weight_kg || !profile.goal) {
+    redirect("/onboarding")
+  }
+
+  const typedPlanTemplates = planTemplates as WorkoutTemplateRow[]
+  const typedSchedule = schedule as ScheduleRow[]
+  const typedProgressEvents = progressEvents as ProgressEventRow[]
 
   const lastPlanIndex = profile.last_plan_index ?? -1
-  const nextPlanIndex = planTemplates.length > 0 ? (lastPlanIndex + 1) % planTemplates.length : -1
-  const nextTemplate = nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
+  const nextPlanIndex =
+    typedPlanTemplates.length > 0
+      ? (lastPlanIndex + 1) % typedPlanTemplates.length
+      : -1
+
+  const nextTemplate =
+    nextPlanIndex >= 0 ? typedPlanTemplates[nextPlanIndex] : null
+
   const caloriesConsumed = Math.round(Number(todayCalories[0]?.total || 0))
   const todaySteps = Number(todayStepsRows[0]?.steps || 0)
-  const latestWeight = latestWeightRows[0]?.weight_kg || null
+  const latestWeight = latestWeightRows[0]?.weight_kg
+    ? Number(latestWeightRows[0].weight_kg)
+    : null
+
   const today = new Date()
   const todayDow = today.getDay()
 
-  // Daily quote — changes every day
-  const dayOfYear = Math.floor((Date.now() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000)
+  const dayOfYear = Math.floor(
+    (Date.now() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000
+  )
   const dailyQuote = QUOTES[dayOfYear % QUOTES.length]
 
   return (
     <HomeClient
-      profile={{ ...profile, daily_quote: dailyQuote }}
+      profile={{
+        display_name: profile.display_name,
+        daily_calorie_target: Number(profile.daily_calorie_target || 0),
+        daily_protein_target: Number(profile.daily_protein_target || 0),
+        daily_step_target: Number(profile.daily_step_target || 8000),
+        show_weight_on_home: Boolean(profile.show_weight_on_home),
+        daily_quote: dailyQuote,
+      }}
       caloriesConsumed={caloriesConsumed}
       todaySteps={todaySteps}
       latestWeight={latestWeight}
-      schedule={schedule}
-            todayDow={todayDow}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      nextTemplate={nextTemplate as any}
-      sectionOrder={profile.home_section_order || ["calories", "protein", "steps", "schedule", "workouts", "stats", "goals", "next"]}    />
+      schedule={typedSchedule}
+      todayDow={todayDow}
+      nextTemplate={nextTemplate}
+      sectionOrder={profile.home_section_order || DEFAULT_SECTION_ORDER}
+      progressEvents={typedProgressEvents}
+    />
   )
 }

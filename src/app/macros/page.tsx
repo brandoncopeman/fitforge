@@ -22,8 +22,7 @@ export default async function MacrosPage() {
       SELECT weight_kg, log_date FROM weight_logs
       WHERE user_id = ${userId}
       ORDER BY log_date DESC
-      LIMIT 30
-    `,
+      LIMIT 90    `,
   ])
 
   return (

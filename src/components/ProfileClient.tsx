@@ -48,13 +48,17 @@ export default function ProfileClient({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  // Filter out home and profile from stored items since they're always shown
   const [navItems, setNavItems] = useState<string[]>(
     (profile.nav_items || ["workouts", "quickstart", "food"])
       .filter((id: string) => id !== "home" && id !== "profile")
   )
   const [savingNav, setSavingNav] = useState(false)
   const [navSaved, setNavSaved] = useState(false)
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState("")
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
 
   async function saveName() {
     setSaving(true)
@@ -96,6 +100,34 @@ export default function ProfileClient({
   async function handleSignOut() {
     await signOut()
     router.push("/sign-in")
+  }
+
+  async function deleteAccount() {
+    if (deleteConfirmation !== "DELETE") return
+
+    setDeletingAccount(true)
+    setDeleteError("")
+
+    try {
+      const res = await fetch("/api/profile/delete", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ confirmation: deleteConfirmation }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || "Failed to delete account")
+      }
+
+      await signOut()
+      router.push("/sign-in")
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete account")
+      setDeletingAccount(false)
+    }
   }
 
   return (
@@ -239,10 +271,71 @@ export default function ProfileClient({
         {/* Danger zone */}
         <div className="bg-red-950/20 border border-red-900/30 rounded-2xl p-4">
           <p className="text-sm font-medium text-red-400 mb-1">Danger Zone</p>
-          <p className="text-xs text-neutral-500 mb-3">Permanently delete your account and all data. This cannot be undone.</p>
-          <button className="text-red-500 hover:text-red-400 text-sm border border-red-900 px-4 py-2 rounded-lg transition-colors">
-            Delete Account
-          </button>
+          <p className="text-xs text-neutral-500 mb-3">
+            Permanently delete your account and all data. This cannot be undone.
+          </p>
+
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-red-500 hover:text-red-400 text-sm border border-red-900 px-4 py-2 rounded-lg transition-colors"
+            >
+              Delete Account
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-neutral-950 border border-red-900/70 p-4">
+                <p className="text-sm font-semibold text-red-300 mb-2">
+                  This cannot be undone.
+                </p>
+                <p className="text-sm text-neutral-400">
+                  This will permanently delete your profile, workouts, templates,
+                  food logs, weight logs, step logs, goals, progress stories, badges,
+                  and account access.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">
+                  Type DELETE to confirm
+                </label>
+                <input
+                  value={deleteConfirmation}
+                  onChange={(e) => setDeleteConfirmation(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              {deleteError && (
+                <p className="text-sm text-red-400">
+                  {deleteError}
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false)
+                    setDeleteConfirmation("")
+                    setDeleteError("")
+                  }}
+                  disabled={deletingAccount}
+                  className="flex-1 py-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={deleteAccount}
+                  disabled={deleteConfirmation !== "DELETE" || deletingAccount}
+                  className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-semibold transition-colors"
+                >
+                  {deletingAccount ? "Deleting..." : "Permanently Delete"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

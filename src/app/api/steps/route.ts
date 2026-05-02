@@ -1,10 +1,13 @@
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import sql from "@/lib/db"
+import { generateStepProgressStory } from "@/lib/progress-storytelling"
 
 export async function GET() {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const [todayLog, recentLogs] = await Promise.all([
     sql`
@@ -24,7 +27,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const { steps, log_date } = await req.json()
   const date = log_date || new Date().toISOString().split("T")[0]
@@ -35,5 +40,8 @@ export async function POST(req: Request) {
     ON CONFLICT (user_id, log_date) DO UPDATE SET steps = ${steps}
     RETURNING *
   `
+
+  generateStepProgressStory(userId, date).catch(console.error)
+
   return NextResponse.json(rows[0])
 }

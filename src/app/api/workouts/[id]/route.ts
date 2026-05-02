@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import sql from "@/lib/db"
+import { generateWorkoutProgressStory } from "@/lib/progress-storytelling"
 
 // GET — fetch a single workout with all its exercises and sets
 export async function GET(
@@ -8,11 +9,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const { id } = await params
 
-  // Get the workout
   const workoutRows = await sql`
     SELECT * FROM workouts 
     WHERE id = ${id} AND user_id = ${userId}
@@ -22,26 +24,24 @@ export async function GET(
     return NextResponse.json({ error: "Workout not found" }, { status: 404 })
   }
 
-  // Get exercises in this workout
   const exercises = await sql`
     SELECT * FROM workout_exercises
     WHERE workout_id = ${id}
     ORDER BY order_index ASC
   `
 
-  // Get sets for each exercise
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exerciseIds = exercises.map((e: any) => e.id)
 
-  const sets = exercises.length > 0
-    ? await sql`
-        SELECT * FROM exercise_sets
-        WHERE workout_exercise_id = ANY(${exerciseIds})
-        ORDER BY set_number ASC
-      `
-    : []
+  const sets =
+    exercises.length > 0
+      ? await sql`
+          SELECT * FROM exercise_sets
+          WHERE workout_exercise_id = ANY(${exerciseIds})
+          ORDER BY set_number ASC
+        `
+      : []
 
-  // Combine exercises with their sets
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exercisesWithSets = exercises.map((exercise: any) => ({
     ...exercise,
@@ -55,13 +55,15 @@ export async function GET(
   })
 }
 
-// PATCH — update a workout (e.g. mark as finished, set duration)
+// PATCH — update a workout when finishing / renaming / setting duration
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const { id } = await params
   const body = await req.json()
@@ -77,6 +79,17 @@ export async function PATCH(
     RETURNING *
   `
 
+  if (!rows[0]) {
+    return NextResponse.json({ error: "Workout not found" }, { status: 404 })
+  }
+
+  // Only generate a workout story when the workout is actually being finished.
+  // Your finishWorkout() sends duration_minutes, so this prevents stories from being created
+  // for smaller edits like renaming or notes updates.
+  if (duration_minutes) {
+    generateWorkoutProgressStory(userId, id).catch(console.error)
+  }
+
   return NextResponse.json(rows[0])
 }
 
@@ -86,7 +99,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const { id } = await params
 

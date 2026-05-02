@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useState, useRef } from "react"
-import Link from "next/link"
-import { UserButton } from "@clerk/nextjs"
+import { useState, useRef } from "react";
+import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 import {
   DndContext,
   closestCenter,
@@ -11,41 +11,49 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from "@dnd-kit/core"
+} from "@dnd-kit/core";
 import {
   SortableContext,
   rectSortingStrategy,
   useSortable,
   arrayMove,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
-const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /* ================= TYPES ================= */
 
 type Profile = {
-  display_name?: string
-  daily_calorie_target: number
-  daily_protein_target: number
-  daily_step_target?: number
-  show_weight_on_home?: boolean
+  display_name?: string;
+  daily_calorie_target: number;
+  daily_protein_target: number;
+  daily_step_target?: number;
+  show_weight_on_home?: boolean;
   daily_quote?: {
-    text?: string
-    author?: string
-  }
-}
+    text?: string;
+    author?: string;
+  };
+};
 
 type ScheduleItem = {
-  day_of_week: number
-  template_name?: string | null
-}
+  day_of_week: number;
+  template_name?: string | null;
+};
 
 type WorkoutTemplate = {
-  id: string | number
-  name: string
-  exercise_count?: number | null
-}
+  id: string | number;
+  name: string;
+  exercise_count?: number | null;
+};
+
+type ProgressEvent = {
+  id: string;
+  title: string;
+  message: string;
+  emoji: string | null;
+  event_type: string;
+};
 
 /* ================= SORTABLE ================= */
 
@@ -54,9 +62,9 @@ function SortableSection({
   children,
   onClickCapture,
 }: {
-  id: string
-  children: React.ReactNode
-  onClickCapture: (e: React.MouseEvent) => void
+  id: string;
+  children: React.ReactNode;
+  onClickCapture: (e: React.MouseEvent) => void;
 }) {
   const {
     attributes,
@@ -65,14 +73,14 @@ function SortableSection({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id })
+  } = useSortable({ id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
     zIndex: isDragging ? 10 : undefined,
-  }
+  };
 
   return (
     <div
@@ -85,7 +93,7 @@ function SortableSection({
     >
       {children}
     </div>
-  )
+  );
 }
 
 /* ================= MAIN ================= */
@@ -99,66 +107,78 @@ export default function HomeClient({
   todayDow,
   nextTemplate,
   sectionOrder: initialOrder,
+  progressEvents,
 }: {
-  profile: Profile
-  caloriesConsumed: number
-  todaySteps: number
-  latestWeight: number | null
-  schedule: ScheduleItem[]
-  todayDow: number
-  nextTemplate: WorkoutTemplate | null
-  sectionOrder: string[]
+  profile: Profile;
+  caloriesConsumed: number;
+  todaySteps: number;
+  latestWeight: number | null;
+  schedule: ScheduleItem[];
+  todayDow: number;
+  nextTemplate: WorkoutTemplate | null;
+  sectionOrder: string[];
+  progressEvents: ProgressEvent[];
 }) {
-  const [sectionOrder, setSectionOrder] = useState(initialOrder)
+  const [sectionOrder, setSectionOrder] = useState(initialOrder);
 
-  // ✅ drag fix
-  const isDraggingRef = useRef(false)
+  // Prevent link click after dragging
+  const isDraggingRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 5 } })
-  )
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 300, tolerance: 5 },
+    })
+  );
 
   function handleDragStart() {
-    isDraggingRef.current = true
+    isDraggingRef.current = true;
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
+    const { active, over } = event;
 
     if (over && active.id !== over.id) {
-      const oldIndex = sectionOrder.indexOf(String(active.id))
-      const newIndex = sectionOrder.indexOf(String(over.id))
-      const reordered = arrayMove(sectionOrder, oldIndex, newIndex)
+      const oldIndex = sectionOrder.indexOf(String(active.id));
+      const newIndex = sectionOrder.indexOf(String(over.id));
+      const reordered = arrayMove(sectionOrder, oldIndex, newIndex);
 
-      setSectionOrder(reordered)
+      setSectionOrder(reordered);
 
       fetch("/api/profile/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ home_section_order: reordered }),
-      })
+      });
     }
 
-    // prevent click after drag
+    // Prevent click after drag
     setTimeout(() => {
-      isDraggingRef.current = false
-    }, 50)
+      isDraggingRef.current = false;
+    }, 50);
   }
 
-  const getSchedDay = (i: number) =>
-    schedule.find((s) => s.day_of_week === i)
+  const getSchedDay = (i: number) => schedule.find((s) => s.day_of_week === i);
+
+  const latestProgressEvent = progressEvents[0];
 
   const SECTIONS: Record<string, React.ReactNode> = {
     calories: (
-      <Link href="/food" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/food"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Daily Calories</p>
         <p className="text-2xl font-bold text-teal-400">{caloriesConsumed}</p>
-        <p className="text-neutral-500 text-xs mt-1">of {profile.daily_calorie_target} kcal</p>
+        <p className="text-neutral-500 text-xs mt-1">
+          of {profile.daily_calorie_target} kcal
+        </p>
         <div className="w-full h-1 bg-neutral-800 rounded-full mt-3">
           <div
             className={`h-1 rounded-full ${
-              caloriesConsumed > profile.daily_calorie_target ? "bg-red-500" : "bg-teal-500"
+              caloriesConsumed > profile.daily_calorie_target
+                ? "bg-red-500"
+                : "bg-teal-500"
             }`}
             style={{
               width: `${Math.min(
@@ -172,7 +192,10 @@ export default function HomeClient({
     ),
 
     protein: (
-      <Link href="/macros" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/macros"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         {profile.show_weight_on_home && latestWeight ? (
           <>
             <p className="text-neutral-400 text-xs mb-1">Weight</p>
@@ -192,13 +215,19 @@ export default function HomeClient({
           </>
         )}
         <div className="w-full h-1 bg-neutral-800 rounded-full mt-3">
-          <div className="h-1 rounded-full bg-blue-500" style={{ width: "0%" }} />
+          <div
+            className="h-1 rounded-full bg-blue-500"
+            style={{ width: "0%" }}
+          />
         </div>
       </Link>
     ),
 
     steps: (
-      <Link href="/steps" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/steps"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Daily Steps</p>
         <p className="text-2xl font-bold text-white">
           {todaySteps.toLocaleString()}
@@ -221,13 +250,16 @@ export default function HomeClient({
     ),
 
     schedule: (
-      <Link href="/schedule" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/schedule"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-2">This Week</p>
         <div className="grid grid-cols-7 gap-0.5">
           {DAYS_SHORT.map((day, i) => {
-            const sd = getSchedDay(i)
-            const isGym = !!sd
-            const isToday = i === todayDow
+            const sd = getSchedDay(i);
+            const isGym = !!sd;
+            const isToday = i === todayDow;
 
             return (
               <div key={i} className="flex flex-col items-center">
@@ -248,59 +280,64 @@ export default function HomeClient({
                   )}
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       </Link>
     ),
 
     workouts: (
-      <Link href="/workouts" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/workouts"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Workouts</p>
         <p className="text-xl">🏋️</p>
-        <p className="text-neutral-400 text-xs mt-2">
-          Templates & history
-        </p>
+        <p className="text-neutral-400 text-xs mt-2">Templates & history</p>
       </Link>
     ),
 
     stats: (
-      <Link href="/stats" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/stats"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Stats</p>
         <p className="text-xl">📈</p>
-        <p className="text-neutral-400 text-xs mt-2">
-          Progress & records
-        </p>
+        <p className="text-neutral-400 text-xs mt-2">Progress & records</p>
       </Link>
     ),
 
     goals: (
-      <Link href="/goals" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/goals"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Goals</p>
         <p className="text-xl">🎯</p>
-        <p className="text-neutral-400 text-xs mt-2">
-          Daily habits & tracker
-        </p>
+        <p className="text-neutral-400 text-xs mt-2">Daily habits & tracker</p>
       </Link>
     ),
 
     food: (
-      <Link href="/food" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/food"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Food</p>
         <p className="text-xl">🥗</p>
-        <p className="text-neutral-400 text-xs mt-2">
-          Log meals & macros
-        </p>
+        <p className="text-neutral-400 text-xs mt-2">Log meals & macros</p>
       </Link>
     ),
 
     macros: (
-      <Link href="/macros" className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full">
+      <Link
+        href="/macros"
+        className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 hover:border-teal-700 transition-colors block h-full"
+      >
         <p className="text-neutral-400 text-xs mb-1">Macros</p>
         <p className="text-xl">⚖️</p>
-        <p className="text-neutral-400 text-xs mt-2">
-          TDEE & targets
-        </p>
+        <p className="text-neutral-400 text-xs mt-2">TDEE & targets</p>
       </Link>
     ),
 
@@ -326,9 +363,13 @@ export default function HomeClient({
         </p>
       </Link>
     ),
-  }
+  };
 
-  const gridSections = sectionOrder.filter((s) => SECTIONS[s])
+  // Keep "progress" out of the draggable grid.
+  // It is rendered as a fixed full-width card under the welcome card.
+  const gridSections = sectionOrder.filter(
+    (s) => s !== "progress" && SECTIONS[s]
+  );
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white p-5">
@@ -350,7 +391,49 @@ export default function HomeClient({
           </p>
         </div>
 
+        <Link
+          href="/stats?tab=badges"
+          className="block bg-gradient-to-br from-teal-950/80 via-neutral-900 to-neutral-900 rounded-2xl border border-teal-800/70 p-5 mb-4 hover:border-teal-500 transition-colors shadow-lg shadow-teal-950/20"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-teal-500/10 border border-teal-700/60 flex items-center justify-center text-2xl flex-shrink-0">
+              {latestProgressEvent?.emoji ?? "✨"}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <p className="text-xs font-medium text-teal-300 uppercase tracking-wide">
+                  Progress Story
+                </p>
+                <p className="text-xs text-neutral-500">View badges →</p>
+              </div>
+
+              {latestProgressEvent ? (
+                <>
+                  <h2 className="text-lg font-bold text-white leading-snug">
+                    {latestProgressEvent.title}
+                  </h2>
+                  <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
+                    {latestProgressEvent.message}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold text-white leading-snug">
+                    Start building your story
+                  </h2>
+                  <p className="text-sm text-neutral-300 mt-1 leading-relaxed">
+                    Log workouts, weight, steps, or goals and FitForge will
+                    start spotting your progress.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </Link>
+
         <DndContext
+          id="home-dnd"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
@@ -364,8 +447,8 @@ export default function HomeClient({
                   id={id}
                   onClickCapture={(e) => {
                     if (isDraggingRef.current) {
-                      e.preventDefault()
-                      e.stopPropagation()
+                      e.preventDefault();
+                      e.stopPropagation();
                     }
                   }}
                 >
@@ -377,5 +460,5 @@ export default function HomeClient({
         </DndContext>
       </div>
     </main>
-  )
+  );
 }

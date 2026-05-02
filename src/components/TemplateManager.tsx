@@ -68,9 +68,11 @@ function SortablePlanTemplate({
             </div>
           ))}
         </div>
+
         <div className="w-7 h-7 rounded-full bg-teal-600/20 border border-teal-700/50 flex items-center justify-center flex-shrink-0">
           <span className="text-teal-400 text-xs font-bold">{idx + 1}</span>
         </div>
+
         {children}
       </div>
     </div>
@@ -88,6 +90,9 @@ export default function TemplateManager({
   const [templates, setTemplates] = useState<Template[]>(initialTemplates)
   const [creatingNew, setCreatingNew] = useState(false)
   const [newName, setNewName] = useState("")
+  const [localLastPlanIndex, setLocalLastPlanIndex] = useState(lastPlanIndex)
+  const [resettingPlan, setResettingPlan] = useState(false)
+  const [settingNextId, setSettingNextId] = useState<string | null>(null)
 
   const planTemplates = templates
     .filter(t => t.in_plan)
@@ -96,8 +101,9 @@ export default function TemplateManager({
   const otherTemplates = templates.filter(t => !t.in_plan)
 
   const nextPlanIndex = planTemplates.length > 0
-    ? (lastPlanIndex + 1) % planTemplates.length
+    ? (localLastPlanIndex + 1) % planTemplates.length
     : -1
+
   const nextTemplate = nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
 
   const sensors = useSensors(
@@ -113,14 +119,12 @@ export default function TemplateManager({
     const newIndex = planTemplates.findIndex(t => t.id === over.id)
     const reordered = arrayMove(planTemplates, oldIndex, newIndex)
 
-    // Optimistic update
     setTemplates(prev => {
       const nonPlan = prev.filter(t => !t.in_plan)
       const reorderedWithIndex = reordered.map((t, i) => ({ ...t, plan_order: i }))
       return [...nonPlan, ...reorderedWithIndex]
     })
 
-    // Save to DB
     await Promise.all(
       reordered.map((t, i) =>
         fetch(`/api/templates/${t.id}`, {
@@ -130,16 +134,64 @@ export default function TemplateManager({
         })
       )
     )
+
+    router.refresh()
+  }
+
+  async function resetPlanOrder() {
+    setResettingPlan(true)
+
+    try {
+      setLocalLastPlanIndex(-1)
+
+      await fetch("/api/profile/reset-plan", {
+        method: "POST",
+      })
+
+      router.refresh()
+    } finally {
+      setResettingPlan(false)
+    }
+  }
+
+  async function setTemplateAsNext(templateId: string) {
+    setSettingNextId(templateId)
+
+    try {
+      const desiredIndex = planTemplates.findIndex(t => String(t.id) === String(templateId))
+
+      if (desiredIndex >= 0) {
+        const newLastPlanIndex =
+          desiredIndex === 0 ? planTemplates.length - 1 : desiredIndex - 1
+
+        setLocalLastPlanIndex(newLastPlanIndex)
+      }
+
+      await fetch("/api/profile/set-next-template", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ template_id: templateId }),
+      })
+
+      router.refresh()
+    } finally {
+      setSettingNextId(null)
+    }
   }
 
   async function createTemplate() {
     if (!newName.trim()) return
+
     const res = await fetch("/api/templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newName.trim() }),
     })
+
     const data = await res.json()
+
     setTemplates(prev => [...prev, { ...data, exercise_count: 0 }])
     setNewName("")
     setCreatingNew(false)
@@ -148,6 +200,7 @@ export default function TemplateManager({
 
   async function deleteTemplate(id: string) {
     if (!confirm("Delete this template?")) return
+
     setTemplates(prev => prev.filter(t => t.id !== id))
     fetch(`/api/templates/${id}`, { method: "DELETE" })
   }
@@ -173,10 +226,10 @@ export default function TemplateManager({
       {/* Start Workout */}
       <div className="bg-teal-600/10 border border-teal-700/50 rounded-xl p-4">
         {nextTemplate ? (
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-xs text-teal-400 mb-0.5 font-medium">Next in your plan</p>
-              <p className="text-white font-semibold">{nextTemplate.name}</p>
+              <p className="text-white font-semibold truncate">{nextTemplate.name}</p>
               <p className="text-neutral-400 text-xs mt-0.5">{nextTemplate.exercise_count} exercises</p>
             </div>
             <Link
@@ -187,8 +240,8 @@ export default function TemplateManager({
             </Link>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-xs text-teal-400 mb-0.5 font-medium">No plan set up yet</p>
               <p className="text-white font-semibold">Empty Workout</p>
               <p className="text-neutral-400 text-xs mt-0.5">Add templates to your plan below</p>
@@ -210,6 +263,16 @@ export default function TemplateManager({
           <span className="text-neutral-500 text-xs">{planTemplates.length} templates</span>
         </div>
 
+        {planTemplates.length > 0 && (
+          <button
+            onClick={resetPlanOrder}
+            disabled={resettingPlan}
+            className="w-full mb-3 py-2.5 rounded-xl border border-neutral-700 text-neutral-300 hover:text-white hover:border-teal-700 transition-colors text-sm disabled:opacity-50"
+          >
+            {resettingPlan ? "Resetting..." : "Reset Plan Order"}
+          </button>
+        )}
+
         {planTemplates.length === 0 ? (
           <div className="bg-neutral-900 rounded-xl border border-neutral-800 p-4 text-center">
             <p className="text-neutral-500 text-sm">No templates in your plan yet.</p>
@@ -217,6 +280,7 @@ export default function TemplateManager({
           </div>
         ) : (
           <DndContext
+            id="plan-template-dnd"
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
@@ -226,25 +290,52 @@ export default function TemplateManager({
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-2">
-                {planTemplates.map((template, idx) => (
-                  <SortablePlanTemplate key={template.id} template={template} idx={idx}>
-                    <Link href={`/workouts/templates/${template.id}/detail`} className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{template.name}</p>
-                      <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
-                    </Link>
-                    <div className="flex items-center gap-1">
-                      <Link
-                        href={`/workouts/templates/${template.id}`}
-                        className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs"
-                      >✎</Link>
-                      <button
-                        onClick={() => toggleInPlan(template)}
-                        className="w-7 h-7 rounded bg-neutral-800 text-red-400 hover:text-red-300 flex items-center justify-center text-xs"
-                        title="Remove from plan"
-                      >−</button>
-                    </div>
-                  </SortablePlanTemplate>
-                ))}
+                {planTemplates.map((template, idx) => {
+                  const isNext = nextTemplate?.id === template.id
+
+                  return (
+                    <SortablePlanTemplate key={template.id} template={template} idx={idx}>
+                      <Link href={`/workouts/templates/${template.id}/detail`} className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium truncate">{template.name}</p>
+                          {isNext && (
+                            <span className="text-[10px] uppercase tracking-wide text-teal-300 bg-teal-600/20 border border-teal-700/50 rounded-full px-2 py-0.5 flex-shrink-0">
+                              Next
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-neutral-500 text-xs mt-0.5">{template.exercise_count} exercises</p>
+                      </Link>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setTemplateAsNext(template.id)}
+                          disabled={settingNextId === template.id || isNext}
+                          className="px-2 h-7 rounded bg-neutral-800 text-teal-400 hover:text-teal-300 disabled:opacity-40 flex items-center justify-center text-xs"
+                          title="Set as next"
+                        >
+                          {settingNextId === template.id ? "..." : "Next"}
+                        </button>
+
+                        <Link
+                          href={`/workouts/templates/${template.id}`}
+                          className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs"
+                          title="Edit template"
+                        >
+                          ✎
+                        </Link>
+
+                        <button
+                          onClick={() => toggleInPlan(template)}
+                          className="w-7 h-7 rounded bg-neutral-800 text-red-400 hover:text-red-300 flex items-center justify-center text-xs"
+                          title="Remove from plan"
+                        >
+                          −
+                        </button>
+                      </div>
+                    </SortablePlanTemplate>
+                  )
+                })}
               </div>
             </SortableContext>
           </DndContext>
@@ -309,15 +400,23 @@ export default function TemplateManager({
                     onClick={() => toggleInPlan(template)}
                     className="px-2 h-7 rounded bg-neutral-800 text-teal-400 hover:text-teal-300 flex items-center justify-center text-xs"
                     title="Add to plan"
-                  >+ Plan</button>
+                  >
+                    + Plan
+                  </button>
                   <Link
                     href={`/workouts/templates/${template.id}`}
                     className="w-7 h-7 rounded bg-neutral-800 text-neutral-400 hover:text-white flex items-center justify-center text-xs"
-                  >✎</Link>
+                    title="Edit template"
+                  >
+                    ✎
+                  </Link>
                   <button
                     onClick={() => deleteTemplate(template.id)}
                     className="w-7 h-7 rounded bg-neutral-800 text-neutral-600 hover:text-red-400 flex items-center justify-center text-xs"
-                  >✕</button>
+                    title="Delete template"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             ))}

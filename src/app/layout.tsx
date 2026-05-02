@@ -3,7 +3,9 @@ import type { Metadata } from "next"
 import { Geist } from "next/font/google"
 import { ClerkProvider } from "@clerk/nextjs"
 import BottomNav from "@/components/BottomNav"
+import ProgressToastListener from "@/components/ProgressToastListener"
 import "./globals.css"
+import { Toaster } from "sonner"
 
 const geist = Geist({ subsets: ["latin"] })
 
@@ -18,11 +20,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en">
         <body className={`${geist.className} bg-neutral-950 text-white min-h-screen pb-20`}>
           {children}
-          <Suspense fallback={
-            <nav className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 z-40 h-16" />
-          }>
+
+          <ProgressToastListener />
+
+          <Suspense
+            fallback={
+              <nav className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 z-40 h-16" />
+            }
+          >
             <BottomNav />
           </Suspense>
+
+          <Toaster
+            position="top-center"
+            richColors
+            closeButton
+          />
         </body>
       </html>
     </ClerkProvider>
