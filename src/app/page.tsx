@@ -109,6 +109,7 @@ type WeeklyRecapSummary = {
   emoji: string | null
   workouts: number
   volume: number
+  averageDailyCalories: number
   steps: number
   goals: number
   weightChange: number | null
