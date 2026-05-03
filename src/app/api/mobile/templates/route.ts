@@ -8,6 +8,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, x-mobile-preview-secret",
 }
 
+function jsonWithCors(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...corsHeaders,
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
@@ -44,11 +54,10 @@ export async function GET(req: Request) {
   const userId = await getRequestUserId(req)
 
   if (!userId) {
-    return NextResponse.json(
+    return jsonWithCors(
       { error: "Not logged in" },
       {
         status: 401,
-        headers: corsHeaders,
       }
     )
   }
@@ -89,17 +98,12 @@ export async function GET(req: Request) {
   const nextTemplate =
     nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
 
-  return NextResponse.json(
-    {
-      templates,
-      plan: {
-        lastPlanIndex,
-        nextPlanIndex,
-        nextTemplate,
-      },
+  return jsonWithCors({
+    templates,
+    plan: {
+      lastPlanIndex,
+      nextPlanIndex,
+      nextTemplate,
     },
-    {
-      headers: corsHeaders,
-    }
-  )
+  })
 }
