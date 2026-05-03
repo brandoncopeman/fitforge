@@ -127,8 +127,8 @@ export default function ProgressToastListener() {
             eventIds: events.map((event) => event.id),
           }),
         })
-      } catch (error) {
-        console.error(error)
+      } catch {
+        // Ignore temporary polling failures during dev reloads, navigation, or offline states.
       }
     }
 
