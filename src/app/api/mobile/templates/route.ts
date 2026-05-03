@@ -2,63 +2,13 @@ import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import sql from "@/lib/db"
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, x-mobile-preview-secret",
-}
-
-function jsonWithCors(body: unknown, init?: ResponseInit) {
-  return NextResponse.json(body, {
-    ...init,
-    headers: {
-      ...corsHeaders,
-      ...(init?.headers ?? {}),
-    },
-  })
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders,
-  })
-}
-
-async function getRequestUserId(req: Request) {
+export async function GET() {
   const { userId } = await auth()
 
-  if (userId) {
-    return userId
-  }
-
-  const { searchParams } = new URL(req.url)
-  const devUserId = searchParams.get("devUserId")
-
-  if (process.env.NODE_ENV !== "production" && devUserId) {
-    return devUserId
-  }
-
-  const previewSecret = req.headers.get("x-mobile-preview-secret")
-  const expectedSecret = process.env.MOBILE_PREVIEW_SECRET
-  const previewUserId = process.env.MOBILE_PREVIEW_USER_ID
-
-  if (expectedSecret && previewUserId && previewSecret === expectedSecret) {
-    return previewUserId
-  }
-
-  return null
-}
-
-export async function GET(req: Request) {
-  const userId = await getRequestUserId(req)
-
   if (!userId) {
-    return jsonWithCors(
+    return NextResponse.json(
       { error: "Not logged in" },
-      {
-        status: 401,
-      }
+      { status: 401 }
     )
   }
 
@@ -98,7 +48,7 @@ export async function GET(req: Request) {
   const nextTemplate =
     nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
 
-  return jsonWithCors({
+  return NextResponse.json({
     templates,
     plan: {
       lastPlanIndex,

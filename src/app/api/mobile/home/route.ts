@@ -3,19 +3,6 @@ import { NextResponse } from "next/server"
 import sql from "@/lib/db"
 import { getLatestWeeklyRecap, getPlanStatus } from "@/lib/plan-insights"
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, x-mobile-preview-secret",
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders,
-  })
-}
-
 const QUOTES = [
   {
     text: "The only way to do great work is to love what you do.",
@@ -99,41 +86,13 @@ function getDailyQuote() {
   return QUOTES[dayOfYear % QUOTES.length]
 }
 
-async function getRequestUserId(req: Request) {
+export async function GET() {
   const { userId } = await auth()
-
-  if (userId) {
-    return userId
-  }
-
-  const { searchParams } = new URL(req.url)
-  const devUserId = searchParams.get("devUserId")
-
-  if (process.env.NODE_ENV !== "production" && devUserId) {
-    return devUserId
-  }
-
-  const previewSecret = req.headers.get("x-mobile-preview-secret")
-  const expectedSecret = process.env.MOBILE_PREVIEW_SECRET
-  const previewUserId = process.env.MOBILE_PREVIEW_USER_ID
-
-  if (expectedSecret && previewUserId && previewSecret === expectedSecret) {
-    return previewUserId
-  }
-
-  return null
-}
-
-export async function GET(req: Request) {
-  const userId = await getRequestUserId(req)
 
   if (!userId) {
     return NextResponse.json(
       { error: "Not logged in" },
-      {
-        status: 401,
-        headers: corsHeaders,
-      }
+      { status: 401 }
     )
   }
 
@@ -211,15 +170,10 @@ export async function GET(req: Request) {
   const profile = profileRows[0] as ProfileRow | undefined
 
   if (!profile || !profile.weight_kg || !profile.goal) {
-    return NextResponse.json(
-      {
-        onboardingRequired: true,
-        profile: null,
-      },
-      {
-        headers: corsHeaders,
-      }
-    )
+    return NextResponse.json({
+      onboardingRequired: true,
+      profile: null,
+    })
   }
 
   const typedPlanTemplates = planTemplates as WorkoutTemplateRow[]
@@ -242,45 +196,40 @@ export async function GET(req: Request) {
 
   const todayDow = new Date().getDay()
 
-  return NextResponse.json(
-    {
-      onboardingRequired: false,
+  return NextResponse.json({
+    onboardingRequired: false,
 
-      profile: {
-        id: profile.id,
-        display_name: profile.display_name,
-        daily_calorie_target: Number(profile.daily_calorie_target ?? 0),
-        daily_protein_target: Number(profile.daily_protein_target ?? 0),
-        daily_step_target: Number(profile.daily_step_target ?? 8000),
-        show_weight_on_home: Boolean(profile.show_weight_on_home),
-        daily_quote: getDailyQuote(),
-      },
-
-      dashboard: {
-        caloriesConsumed,
-        todaySteps,
-        latestWeight,
-        todayDow,
-        sectionOrder: profile.home_section_order || DEFAULT_SECTION_ORDER,
-      },
-
-      plan: {
-        templates: typedPlanTemplates,
-        lastPlanIndex,
-        nextPlanIndex,
-        nextTemplate,
-        status: planStatus,
-      },
-
-      schedule,
-
-      progress: {
-        events: progressEvents,
-        weeklyRecap,
-      },
+    profile: {
+      id: profile.id,
+      display_name: profile.display_name,
+      daily_calorie_target: Number(profile.daily_calorie_target ?? 0),
+      daily_protein_target: Number(profile.daily_protein_target ?? 0),
+      daily_step_target: Number(profile.daily_step_target ?? 8000),
+      show_weight_on_home: Boolean(profile.show_weight_on_home),
+      daily_quote: getDailyQuote(),
     },
-    {
-      headers: corsHeaders,
-    }
-  )
+
+    dashboard: {
+      caloriesConsumed,
+      todaySteps,
+      latestWeight,
+      todayDow,
+      sectionOrder: profile.home_section_order || DEFAULT_SECTION_ORDER,
+    },
+
+    plan: {
+      templates: typedPlanTemplates,
+      lastPlanIndex,
+      nextPlanIndex,
+      nextTemplate,
+      status: planStatus,
+    },
+
+    schedule,
+
+    progress: {
+      events: progressEvents,
+      weeklyRecap,
+    },
+  })
 }
