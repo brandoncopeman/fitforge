@@ -3,17 +3,60 @@ import { NextResponse } from "next/server"
 import sql from "@/lib/db"
 import { getLatestWeeklyRecap, getPlanStatus } from "@/lib/plan-insights"
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-mobile-preview-secret",
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders,
+  })
+}
+
 const QUOTES = [
-  { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
-  { text: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
-  { text: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
-  { text: "The pain you feel today will be the strength you feel tomorrow.", author: "Arnold Schwarzenegger" },
-  { text: "Don't count the days, make the days count.", author: "Muhammad Ali" },
-  { text: "The only bad workout is the one that didn't happen.", author: "Unknown" },
-  { text: "Discipline is doing what needs to be done, even when you don't want to.", author: "Unknown" },
-  { text: "Push yourself because no one else is going to do it for you.", author: "Unknown" },
-  { text: "Motivation is what gets you started. Habit is what keeps you going.", author: "Jim Ryun" },
-  { text: "Your biggest competition is the person you were yesterday.", author: "Unknown" },
+  {
+    text: "The only way to do great work is to love what you do.",
+    author: "Steve Jobs",
+  },
+  {
+    text: "Success is not final, failure is not fatal: it is the courage to continue that counts.",
+    author: "Winston Churchill",
+  },
+  {
+    text: "It does not matter how slowly you go as long as you do not stop.",
+    author: "Confucius",
+  },
+  {
+    text: "The pain you feel today will be the strength you feel tomorrow.",
+    author: "Arnold Schwarzenegger",
+  },
+  {
+    text: "Don't count the days, make the days count.",
+    author: "Muhammad Ali",
+  },
+  {
+    text: "The only bad workout is the one that didn't happen.",
+    author: "Unknown",
+  },
+  {
+    text: "Discipline is doing what needs to be done, even when you don't want to.",
+    author: "Unknown",
+  },
+  {
+    text: "Push yourself because no one else is going to do it for you.",
+    author: "Unknown",
+  },
+  {
+    text: "Motivation is what gets you started. Habit is what keeps you going.",
+    author: "Jim Ryun",
+  },
+  {
+    text: "Your biggest competition is the person you were yesterday.",
+    author: "Unknown",
+  },
 ]
 
 type ProfileRow = {
@@ -74,11 +117,7 @@ async function getRequestUserId(req: Request) {
   const expectedSecret = process.env.MOBILE_PREVIEW_SECRET
   const previewUserId = process.env.MOBILE_PREVIEW_USER_ID
 
-  if (
-    expectedSecret &&
-    previewUserId &&
-    previewSecret === expectedSecret
-  ) {
+  if (expectedSecret && previewUserId && previewSecret === expectedSecret) {
     return previewUserId
   }
 
@@ -91,7 +130,10 @@ export async function GET(req: Request) {
   if (!userId) {
     return NextResponse.json(
       { error: "Not logged in" },
-      { status: 401 }
+      {
+        status: 401,
+        headers: corsHeaders,
+      }
     )
   }
 
@@ -169,10 +211,15 @@ export async function GET(req: Request) {
   const profile = profileRows[0] as ProfileRow | undefined
 
   if (!profile || !profile.weight_kg || !profile.goal) {
-    return NextResponse.json({
-      onboardingRequired: true,
-      profile: null,
-    })
+    return NextResponse.json(
+      {
+        onboardingRequired: true,
+        profile: null,
+      },
+      {
+        headers: corsHeaders,
+      }
+    )
   }
 
   const typedPlanTemplates = planTemplates as WorkoutTemplateRow[]
@@ -195,40 +242,45 @@ export async function GET(req: Request) {
 
   const todayDow = new Date().getDay()
 
-  return NextResponse.json({
-    onboardingRequired: false,
+  return NextResponse.json(
+    {
+      onboardingRequired: false,
 
-    profile: {
-      id: profile.id,
-      display_name: profile.display_name,
-      daily_calorie_target: Number(profile.daily_calorie_target ?? 0),
-      daily_protein_target: Number(profile.daily_protein_target ?? 0),
-      daily_step_target: Number(profile.daily_step_target ?? 8000),
-      show_weight_on_home: Boolean(profile.show_weight_on_home),
-      daily_quote: getDailyQuote(),
+      profile: {
+        id: profile.id,
+        display_name: profile.display_name,
+        daily_calorie_target: Number(profile.daily_calorie_target ?? 0),
+        daily_protein_target: Number(profile.daily_protein_target ?? 0),
+        daily_step_target: Number(profile.daily_step_target ?? 8000),
+        show_weight_on_home: Boolean(profile.show_weight_on_home),
+        daily_quote: getDailyQuote(),
+      },
+
+      dashboard: {
+        caloriesConsumed,
+        todaySteps,
+        latestWeight,
+        todayDow,
+        sectionOrder: profile.home_section_order || DEFAULT_SECTION_ORDER,
+      },
+
+      plan: {
+        templates: typedPlanTemplates,
+        lastPlanIndex,
+        nextPlanIndex,
+        nextTemplate,
+        status: planStatus,
+      },
+
+      schedule,
+
+      progress: {
+        events: progressEvents,
+        weeklyRecap,
+      },
     },
-
-    dashboard: {
-      caloriesConsumed,
-      todaySteps,
-      latestWeight,
-      todayDow,
-      sectionOrder: profile.home_section_order || DEFAULT_SECTION_ORDER,
-    },
-
-    plan: {
-      templates: typedPlanTemplates,
-      lastPlanIndex,
-      nextPlanIndex,
-      nextTemplate,
-      status: planStatus,
-    },
-
-    schedule,
-
-    progress: {
-      events: progressEvents,
-      weeklyRecap,
-    },
-  })
+    {
+      headers: corsHeaders,
+    }
+  )
 }
