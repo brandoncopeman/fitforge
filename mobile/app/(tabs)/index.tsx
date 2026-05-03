@@ -1,6 +1,10 @@
 import { Ionicons } from "@expo/vector-icons"
+import { useAuth } from "@clerk/clerk-expo"
 import { router } from "expo-router"
+import { useCallback, useEffect, useState } from "react"
 import {
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,32 +15,96 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import { getMobileHome } from "@/lib/api"
+import { MobileHomeResponse } from "@/types/home"
 
-const mockHome = {
-  displayName: "Brandon",
-  quote: {
-    text: "The pain you feel today will be the strength you feel tomorrow.",
-    author: "Arnold Schwarzenegger",
-  },
-  caloriesConsumed: 0,
-  calorieTarget: 2609,
-  steps: 0,
-  stepTarget: 8000,
-  latestWeight: 115,
-  nextWorkout: "Push",
-  nextExercises: 3,
-  planStatus: "Plan complete this week",
-  planDetail: "40/3 workouts complete",
-  streakWeeks: 2,
+function getFirstName(name?: string | null) {
+  if (!name) return "there"
+  return name.split(" ")[0]
 }
 
 export default function HomeScreen() {
+  const { getToken } = useAuth()
+
+  const [data, setData] = useState<MobileHomeResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadHome = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true)
+        } else {
+          setLoading(true)
+        }
+
+        setError(null)
+
+        const home = await getMobileHome(getToken)
+        setData(home)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load home")
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [getToken]
+  )
+
+  useEffect(() => {
+    loadHome()
+  }, [loadHome])
+
+  if (loading && !data) {
+    return (
+      <SafeAreaView style={styles.centered} edges={["top"]}>
+        <ActivityIndicator color={colors.teal} size="large" />
+        <Text style={styles.loadingText}>Loading FitForge...</Text>
+      </SafeAreaView>
+    )
+  }
+
+  if (error && !data) {
+    return (
+      <SafeAreaView style={styles.centered} edges={["top"]}>
+        <Text style={styles.errorTitle}>Couldn’t load Home</Text>
+        <Text selectable style={styles.errorText}>
+          {error}
+        </Text>
+
+        <FitCard accent onPress={() => loadHome()}>
+          <Text style={styles.retryText}>Tap to retry</Text>
+        </FitCard>
+      </SafeAreaView>
+    )
+  }
+
+  const profile = data?.profile
+  const dashboard = data?.dashboard
+  const plan = data?.plan
+  const progress = data?.progress
+
+  const latestProgress = progress?.events?.[0] ?? null
+  const weeklyRecap = progress?.weeklyRecap ?? null
+  const nextTemplate = plan?.nextTemplate ?? null
+  const planStatus = plan?.status ?? null
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadHome(true)}
+            tintColor={colors.teal}
+          />
+        }
       >
         <View style={styles.header}>
           <View>
@@ -45,25 +113,33 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>B</Text>
+            <Text style={styles.avatarText}>
+              {(profile?.display_name || "B")[0]?.toUpperCase()}
+            </Text>
           </View>
         </View>
 
         <FitCard>
           <Text style={styles.welcome}>
-            Welcome back, {mockHome.displayName}
+            Welcome back, {getFirstName(profile?.display_name)}
           </Text>
-          <Text style={styles.quote}>“{mockHome.quote.text}”</Text>
-          <Text style={styles.quoteAuthor}>— {mockHome.quote.author}</Text>
+          <Text style={styles.quote}>“{profile?.daily_quote.text}”</Text>
+          <Text style={styles.quoteAuthor}>— {profile?.daily_quote.author}</Text>
         </FitCard>
 
         <FitCard accent onPress={() => router.push("/workouts")}>
           <View style={styles.nextHeader}>
-            <View>
-              <Text style={styles.eyebrow}>Next in plan</Text>
-              <Text style={styles.nextTitle}>{mockHome.nextWorkout}</Text>
+            <View style={styles.nextTextBlock}>
+              <Text style={styles.eyebrow}>
+                {nextTemplate ? "Next in plan" : "No plan set"}
+              </Text>
+              <Text style={styles.nextTitle}>
+                {nextTemplate?.name ?? "Empty Workout"}
+              </Text>
               <Text style={styles.nextDetail}>
-                {mockHome.nextExercises} exercises
+                {nextTemplate
+                  ? `${nextTemplate.exercise_count ?? 0} exercises`
+                  : "Start a free workout"}
               </Text>
             </View>
 
@@ -76,46 +152,94 @@ export default function HomeScreen() {
         <View style={styles.tileRow}>
           <StatTile
             label="Calories"
-            value={mockHome.caloriesConsumed}
-            detail={`of ${mockHome.calorieTarget} kcal`}
+            value={dashboard?.caloriesConsumed ?? 0}
+            detail={`of ${profile?.daily_calorie_target ?? 0} kcal`}
             accent
           />
           <StatTile
             label="Steps"
-            value={mockHome.steps.toLocaleString()}
-            detail={`of ${mockHome.stepTarget.toLocaleString()}`}
+            value={(dashboard?.todaySteps ?? 0).toLocaleString()}
+            detail={`of ${(profile?.daily_step_target ?? 8000).toLocaleString()}`}
           />
         </View>
 
         <View style={styles.tileRow}>
           <StatTile
             label="Weight"
-            value={`${mockHome.latestWeight}kg`}
+            value={dashboard?.latestWeight ? `${dashboard.latestWeight}kg` : "—"}
             detail="latest log"
           />
           <StatTile
             label="Streak"
-            value={`${mockHome.streakWeeks}w`}
+            value={`${planStatus?.streakWeeks ?? 0}w`}
             detail="workout streak"
             accent
           />
         </View>
 
-        <FitCard onPress={() => router.push("/workouts")}>
-          <View style={styles.rowBetween}>
-            <View style={styles.rowIconText}>
-              <View style={styles.iconBadge}>
-                <Ionicons name="checkmark" size={20} color={colors.teal} />
+        {planStatus ? (
+          <FitCard onPress={() => router.push("/workouts")}>
+            <View style={styles.rowBetween}>
+              <View style={styles.rowIconText}>
+                <View style={styles.iconBadge}>
+                  <Text style={styles.statusEmoji}>{planStatus.emoji}</Text>
+                </View>
+
+                <View style={styles.flexOne}>
+                  <Text style={styles.cardTitle}>{planStatus.title}</Text>
+                  <Text style={styles.cardDetail}>{planStatus.message}</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.cardTitle}>{mockHome.planStatus}</Text>
-                <Text style={styles.cardDetail}>{mockHome.planDetail}</Text>
+
+              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+            </View>
+          </FitCard>
+        ) : null}
+
+        {latestProgress ? (
+          <FitCard onPress={() => router.push("/stats")}>
+            <Text style={styles.cardEyebrow}>Progress Story</Text>
+            <Text style={styles.cardTitle}>
+              {latestProgress.emoji ?? "✨"} {latestProgress.title}
+            </Text>
+            <Text style={styles.cardDetail}>{latestProgress.message}</Text>
+          </FitCard>
+        ) : null}
+
+        {weeklyRecap ? (
+          <FitCard onPress={() => router.push("/stats")}>
+            <Text style={styles.cardEyebrow}>Weekly Recap</Text>
+            <Text style={styles.cardTitle}>
+              {weeklyRecap.emoji ?? "📅"} {weeklyRecap.title}
+            </Text>
+
+            <View style={styles.recapGrid}>
+              <View style={styles.recapTile}>
+                <Text style={styles.recapValue}>{weeklyRecap.workouts}</Text>
+                <Text style={styles.recapLabel}>workouts</Text>
+              </View>
+
+              <View style={styles.recapTile}>
+                <Text style={styles.recapValue}>
+                  {weeklyRecap.averageDailyCalories.toLocaleString()}
+                </Text>
+                <Text style={styles.recapLabel}>avg kcal</Text>
+              </View>
+
+              <View style={styles.recapTile}>
+                <Text style={styles.recapValue}>
+                  {weeklyRecap.steps.toLocaleString()}
+                </Text>
+                <Text style={styles.recapLabel}>steps</Text>
+              </View>
+
+              <View style={styles.recapTile}>
+                <Text style={styles.recapValue}>{weeklyRecap.goals}</Text>
+                <Text style={styles.recapLabel}>goals</Text>
               </View>
             </View>
-
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </View>
-        </FitCard>
+          </FitCard>
+        ) : null}
 
         <View style={styles.quickGrid}>
           <FitCard style={styles.quickCard} onPress={() => router.push("/workouts")}>
@@ -159,6 +283,35 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: 110,
     gap: spacing.md,
+  },
+  centered: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  loadingText: {
+    color: colors.textMuted,
+    fontWeight: "700",
+    marginTop: spacing.md,
+  },
+  errorTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+  },
+  errorText: {
+    color: colors.textMuted,
+    textAlign: "center",
+    marginBottom: spacing.lg,
+  },
+  retryText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
   },
   header: {
     marginTop: spacing.sm,
@@ -215,6 +368,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  nextTextBlock: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
   eyebrow: {
     color: colors.teal,
     fontSize: 12,
@@ -258,6 +415,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     flex: 1,
   },
+  flexOne: {
+    flex: 1,
+  },
   iconBadge: {
     width: 42,
     height: 42,
@@ -267,6 +427,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  statusEmoji: {
+    fontSize: 20,
+  },
+  cardEyebrow: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: spacing.sm,
   },
   cardTitle: {
     color: colors.text,
@@ -278,6 +449,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginTop: 3,
+    lineHeight: 18,
+  },
+  recapGrid: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  recapTile: {
+    flex: 1,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+  },
+  recapValue: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  recapLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2,
   },
   quickGrid: {
     flexDirection: "row",

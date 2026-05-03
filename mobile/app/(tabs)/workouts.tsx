@@ -1,6 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons"
+import { useAuth } from "@clerk/clerk-expo"
+import * as Haptics from "expo-haptics"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ActivityIndicator,
   Platform,
@@ -10,74 +11,79 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 
-import FitCard from "@/components/FitCard";
-import { colors, radius, spacing } from "@/constants/fitforgeTheme";
-import { getMobileTemplates } from "@/lib/api";
+import FitCard from "@/components/FitCard"
+import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import { getMobileTemplates } from "@/lib/api"
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
-} from "@/types/workouts";
+} from "@/types/workouts"
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
   }
 }
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
   }
 }
 
 function formatExerciseCount(count: number) {
-  return `${count} exercise${count === 1 ? "" : "s"}`;
+  return `${count} exercise${count === 1 ? "" : "s"}`
 }
 
 export default function WorkoutsScreen() {
-  const [data, setData] = useState<MobileTemplatesResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth()
 
-  const loadTemplates = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  const [data, setData] = useState<MobileTemplatesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadTemplates = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true)
+        } else {
+          setLoading(true)
+        }
+
+        setError(null)
+
+        const templates = await getMobileTemplates(getToken)
+        setData(templates)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load workouts")
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
       }
-
-      setError(null);
-
-      const templates = await getMobileTemplates();
-      setData(templates);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load workouts");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+    },
+    [getToken]
+  )
 
   useEffect(() => {
-    loadTemplates();
-  }, [loadTemplates]);
+    loadTemplates()
+  }, [loadTemplates])
 
   const planTemplates = useMemo(
     () => data?.templates.filter((template) => template.in_plan) ?? [],
     [data]
-  );
+  )
 
   const otherTemplates = useMemo(
     () => data?.templates.filter((template) => !template.in_plan) ?? [],
     [data]
-  );
+  )
 
-  const nextTemplate = data?.plan.nextTemplate ?? null;
+  const nextTemplate = data?.plan.nextTemplate ?? null
 
   if (loading && !data) {
     return (
@@ -85,7 +91,7 @@ export default function WorkoutsScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading workouts...</Text>
       </SafeAreaView>
-    );
+    )
   }
 
   if (error && !data) {
@@ -95,11 +101,12 @@ export default function WorkoutsScreen() {
         <Text selectable style={styles.errorText}>
           {error}
         </Text>
+
         <FitCard accent onPress={() => loadTemplates()}>
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    );
+    )
   }
 
   return (
@@ -196,7 +203,7 @@ export default function WorkoutsScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
-  );
+  )
 }
 
 function SectionTitle({ title, detail }: { title: string; detail: string }) {
@@ -205,7 +212,7 @@ function SectionTitle({ title, detail }: { title: string; detail: string }) {
       <Text style={styles.sectionTitle}>{title}</Text>
       <Text style={styles.sectionDetail}>{detail}</Text>
     </View>
-  );
+  )
 }
 
 function TemplateCard({
@@ -213,9 +220,9 @@ function TemplateCard({
   index,
   isNext,
 }: {
-  template: MobileWorkoutTemplate;
-  index: number;
-  isNext: boolean;
+  template: MobileWorkoutTemplate
+  index: number
+  isNext: boolean
 }) {
   return (
     <FitCard
@@ -250,7 +257,7 @@ function TemplateCard({
         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
       </View>
     </FitCard>
-  );
+  )
 }
 
 function EmptyCard({ text }: { text: string }) {
@@ -258,7 +265,7 @@ function EmptyCard({ text }: { text: string }) {
     <FitCard>
       <Text style={styles.emptyText}>{text}</Text>
     </FitCard>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
@@ -465,4 +472,4 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
-});
+})

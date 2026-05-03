@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons"
+import { useClerk, useUser } from "@clerk/clerk-expo"
+import { router } from "expo-router"
 import { ScrollView, StyleSheet, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 
@@ -6,6 +8,19 @@ import FitCard from "@/components/FitCard"
 import { colors, spacing } from "@/constants/fitforgeTheme"
 
 export default function ProfileScreen() {
+  const { signOut } = useClerk()
+  const { user } = useUser()
+
+  async function handleSignOut() {
+    await signOut()
+    router.replace("/(auth)/sign-in")
+  }
+
+  const displayName =
+    user?.fullName || user?.primaryEmailAddress?.emailAddress || "FitForge User"
+
+  const initial = displayName[0]?.toUpperCase() || "F"
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
@@ -18,12 +33,14 @@ export default function ProfileScreen() {
         <FitCard>
           <View style={styles.profileRow}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>B</Text>
+              <Text style={styles.avatarText}>{initial}</Text>
             </View>
 
-            <View>
-              <Text style={styles.name}>Brandon</Text>
-              <Text style={styles.email}>Native auth coming next</Text>
+            <View style={styles.profileText}>
+              <Text style={styles.name}>{displayName}</Text>
+              <Text style={styles.email}>
+                {user?.primaryEmailAddress?.emailAddress ?? "Signed in"}
+              </Text>
             </View>
           </View>
         </FitCard>
@@ -33,6 +50,10 @@ export default function ProfileScreen() {
           <SettingRow icon="notifications-outline" label="Notifications" value="Soon" />
           <SettingRow icon="shield-checkmark-outline" label="Privacy" value="Soon" />
           <SettingRow icon="trash-outline" label="Delete account" value="Web for now" danger />
+        </FitCard>
+
+        <FitCard accent onPress={handleSignOut}>
+          <Text style={styles.signOutText}>Sign Out</Text>
         </FitCard>
       </ScrollView>
     </SafeAreaView>
@@ -108,6 +129,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "900",
   },
+  profileText: {
+    flex: 1,
+  },
   name: {
     color: colors.text,
     fontSize: 20,
@@ -144,5 +168,11 @@ const styles = StyleSheet.create({
   },
   dangerText: {
     color: colors.red,
+  },
+  signOutText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
   },
 })

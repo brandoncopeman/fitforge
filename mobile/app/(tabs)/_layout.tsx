@@ -1,6 +1,7 @@
-import { Tabs } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
+import { useAuth } from "@clerk/clerk-expo"
 import * as Haptics from "expo-haptics"
+import { Redirect, Tabs } from "expo-router"
 import { Platform } from "react-native"
 
 import { colors } from "@/constants/fitforgeTheme"
@@ -22,6 +23,16 @@ function triggerTabHaptic() {
 }
 
 export default function TabLayout() {
+  const { isSignedIn, isLoaded } = useAuth()
+
+  if (!isLoaded) {
+    return null
+  }
+
+  if (!isSignedIn) {
+    return <Redirect href="/(auth)/sign-in" />
+  }
+
   return (
     <Tabs
       screenOptions={{
