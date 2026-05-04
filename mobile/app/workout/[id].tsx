@@ -17,8 +17,12 @@ import { SafeAreaView } from "react-native-safe-area-context"
 
 import FitCard from "@/components/FitCard"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import { getCachedActiveWorkout } from "@/lib/activeWorkoutCache"
 import { getMobileWorkout } from "@/lib/api"
-import { MobileActiveWorkoutResponse, MobileExerciseSet } from "@/types/activeWorkout"
+import {
+  MobileActiveWorkoutResponse,
+  MobileExerciseSet,
+} from "@/types/activeWorkout"
 
 function triggerSetHaptic() {
   if (Platform.OS !== "web") {
@@ -36,9 +40,13 @@ export default function ActiveWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { getToken } = useAuth()
 
-  const [data, setData] = useState<MobileActiveWorkoutResponse | null>(null)
+  const [data, setData] = useState<MobileActiveWorkoutResponse | null>(() => {
+    if (!id) return null
+    return getCachedActiveWorkout(id)
+  })
+
   const [completedSetIds, setCompletedSetIds] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!data)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,11 +76,14 @@ export default function ActiveWorkoutScreen() {
   )
 
   useEffect(() => {
-    loadWorkout()
+    loadWorkout(Boolean(data))
   }, [loadWorkout])
 
   const totalSets = useMemo(() => {
-    return data?.exercises.reduce((total, exercise) => total + exercise.sets.length, 0) ?? 0
+    return data?.exercises.reduce(
+      (total, exercise) => total + exercise.sets.length,
+      0
+    ) ?? 0
   }, [data])
 
   const completedCount = completedSetIds.size
@@ -149,11 +160,19 @@ export default function ActiveWorkoutScreen() {
           </View>
         </View>
 
+        {error ? (
+          <FitCard>
+            <Text selectable style={styles.inlineError}>
+              {error}
+            </Text>
+          </FitCard>
+        ) : null}
+
         <FitCard accent>
           <Text style={styles.eyebrow}>Active workout</Text>
           <Text style={styles.heroTitle}>{data?.workout.name}</Text>
           <Text style={styles.heroDetail}>
-            Tap sets as you complete them. Rest timer comes next.
+            Tap sets as you complete them. Full old-style workout controls come next.
           </Text>
         </FitCard>
 
@@ -205,9 +224,7 @@ export default function ActiveWorkoutScreen() {
                       <Text style={styles.setPrimary}>
                         {set.reps} reps · {formatWeight(set.weight_kg)}
                       </Text>
-                      <Text style={styles.setSecondary}>
-                        Set {set.set_number}
-                      </Text>
+                      <Text style={styles.setSecondary}>Set {set.set_number}</Text>
                     </View>
 
                     <Ionicons
@@ -252,7 +269,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 124,
+    paddingBottom: 130,
     gap: spacing.md,
   },
   loadingText: {
@@ -270,6 +287,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: "center",
     marginBottom: spacing.lg,
+  },
+  inlineError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   retryText: {
     color: colors.text,

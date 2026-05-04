@@ -2,24 +2,28 @@ import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import sql from "@/lib/db"
 
-type TemplateExerciseRow = {
+type WorkoutExerciseRow = {
   id: string
+  workout_id: string
   exercise_name: string
+  exercise_external_id: string | null
   muscle_group: string | null
   order_index: number | null
-  default_sets: number | null
-  default_reps: number | null
-  default_weight_kg: number | string | null
+}
+
+type ExerciseSetRow = {
+  id: string
+  workout_exercise_id: string
+  set_number: number
+  reps: number
+  weight_kg: number | string
 }
 
 export async function POST(req: Request) {
   const { userId } = await auth()
 
   if (!userId) {
-    return NextResponse.json(
-      { error: "Not logged in" },
-      { status: 401 }
-    )
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
   }
 
   const body = await req.json().catch(() => ({}))
@@ -33,21 +37,12 @@ export async function POST(req: Request) {
   `
 
   const planTemplates = await sql`
-    SELECT wt.*, COUNT(te.id)::int AS exercise_count
-    FROM workout_templates wt
-    LEFT JOIN template_exercises te ON te.template_id = wt.id
-    WHERE wt.user_id = ${userId}
-      AND wt.in_plan = true
-    GROUP BY wt.id
-    ORDER BY wt.plan_order ASC
+    SELECT id, name, plan_order
+    FROM workout_templates
+    WHERE user_id = ${userId}
+      AND in_plan = true
+    ORDER BY plan_order ASC
   `
-
-  if (planTemplates.length === 0 && !requestedTemplateId) {
-    return NextResponse.json(
-      { error: "No workout plan templates found" },
-      { status: 400 }
-    )
-  }
 
   const lastPlanIndex = Number(profileRows[0]?.last_plan_index ?? -1)
 
@@ -57,17 +52,13 @@ export async function POST(req: Request) {
       : -1
 
   const queuedTemplate =
-    requestedTemplateId
-      ? null
-      : nextPlanIndex >= 0
-        ? planTemplates[nextPlanIndex]
-        : null
+    nextPlanIndex >= 0 ? planTemplates[nextPlanIndex] : null
 
   const templateId = requestedTemplateId || queuedTemplate?.id
 
   if (!templateId) {
     return NextResponse.json(
-      { error: "No template selected" },
+      { error: "No workout template selected" },
       { status: 400 }
     )
   }
@@ -103,6 +94,10 @@ export async function POST(req: Request) {
     ORDER BY order_index ASC
   `
 
+  const exerciseNames = templateExercises.map(
+    (exercise) => exercise.exercise_name as string
+  )
+
   const workoutRows = await sql`
     INSERT INTO workouts (user_id, name)
     VALUES (${userId}, ${template.name})
@@ -111,68 +106,113 @@ export async function POST(req: Request) {
 
   const workout = workoutRows[0]
 
-  const createdExercises = []
-
-  for (const templateExercise of templateExercises as TemplateExerciseRow[]) {
-    const workoutExerciseRows = await sql`
-      INSERT INTO workout_exercises (
-        workout_id,
-        exercise_name,
-        exercise_external_id,
-        muscle_group,
-        order_index
-      )
-      VALUES (
-        ${workout.id},
-        ${templateExercise.exercise_name},
-        ${null},
-        ${templateExercise.muscle_group || null},
-        ${templateExercise.order_index || 0}
-      )
-      RETURNING *
-    `
-
-    const workoutExercise = workoutExerciseRows[0]
-
-    const defaultSetCount = Math.max(
-      1,
-      Number(templateExercise.default_sets ?? 3)
-    )
-
-    const defaultReps = Number(templateExercise.default_reps ?? 8)
-    const defaultWeightKg = Number(templateExercise.default_weight_kg ?? 0)
-
-    const createdSets = []
-
-    for (let setNumber = 1; setNumber <= defaultSetCount; setNumber += 1) {
-      const setRows = await sql`
-        INSERT INTO exercise_sets (
-          workout_exercise_id,
-          set_number,
-          reps,
-          weight_kg
-        )
-        VALUES (
-          ${workoutExercise.id},
-          ${setNumber},
-          ${defaultReps},
-          ${defaultWeightKg}
-        )
-        RETURNING *
-      `
-
-      createdSets.push(setRows[0])
-    }
-
-    createdExercises.push({
-      ...workoutExercise,
-      sets: createdSets,
+  if (templateExercises.length === 0) {
+    return NextResponse.json({
+      workout,
+      template,
+      exercises: [],
+      startedFromTemplateId: templateId,
+      startedFromQueuedTemplate: !requestedTemplateId,
     })
   }
+
+  await sql`
+    INSERT INTO workout_exercises (
+      workout_id,
+      exercise_name,
+      exercise_external_id,
+      muscle_group,
+      order_index
+    )
+    SELECT
+      ${workout.id},
+      te.exercise_name,
+      NULL,
+      te.muscle_group,
+      COALESCE(te.order_index, 0)
+    FROM template_exercises te
+    WHERE te.template_id = ${templateId}
+    ORDER BY te.order_index ASC
+  `
+
+  const workoutExercises = await sql`
+    SELECT *
+    FROM workout_exercises
+    WHERE workout_id = ${workout.id}
+    ORDER BY order_index ASC
+  `
+
+  await sql`
+    WITH last_sets AS (
+      SELECT DISTINCT ON (we.exercise_name, es.set_number)
+        we.exercise_name,
+        es.set_number,
+        es.weight_kg,
+        es.reps,
+        w.performed_at
+      FROM exercise_sets es
+      JOIN workout_exercises we ON es.workout_exercise_id = we.id
+      JOIN workouts w ON we.workout_id = w.id
+      WHERE w.user_id = ${userId}
+        AND w.id <> ${workout.id}
+        AND we.exercise_name = ANY(${exerciseNames})
+      ORDER BY we.exercise_name, es.set_number, w.performed_at DESC
+    )
+    INSERT INTO exercise_sets (
+      workout_exercise_id,
+      set_number,
+      reps,
+      weight_kg
+    )
+    SELECT
+      we.id,
+      generated.set_number,
+      COALESCE(ls.reps, te.default_reps, 8),
+      COALESCE(ls.weight_kg, te.default_weight_kg, 0)
+    FROM template_exercises te
+    JOIN workout_exercises we
+      ON we.workout_id = ${workout.id}
+      AND we.exercise_name = te.exercise_name
+      AND COALESCE(we.order_index, 0) = COALESCE(te.order_index, 0)
+    CROSS JOIN LATERAL generate_series(
+      1,
+      GREATEST(1, COALESCE(te.default_sets, 3))
+    ) AS generated(set_number)
+    LEFT JOIN last_sets ls
+      ON ls.exercise_name = te.exercise_name
+      AND ls.set_number = generated.set_number
+    WHERE te.template_id = ${templateId}
+    ORDER BY COALESCE(te.order_index, 0), generated.set_number
+  `
+
+  const exerciseIds = (workoutExercises as WorkoutExerciseRow[]).map(
+    (exercise) => exercise.id
+  )
+
+  const sets =
+    exerciseIds.length > 0
+      ? await sql`
+          SELECT *
+          FROM exercise_sets
+          WHERE workout_exercise_id = ANY(${exerciseIds})
+          ORDER BY set_number ASC
+        `
+      : []
+
+  const exercisesWithSets = (workoutExercises as WorkoutExerciseRow[]).map(
+    (exercise) => ({
+      ...exercise,
+      sets: (sets as ExerciseSetRow[]).filter(
+        (set) => set.workout_exercise_id === exercise.id
+      ),
+    })
+  )
 
   return NextResponse.json({
     workout,
     template,
-    exercises: createdExercises,
+    exercises: exercisesWithSets,
+    startedFromTemplateId: templateId,
+    startedFromQueuedTemplate: !requestedTemplateId,
   })
 }

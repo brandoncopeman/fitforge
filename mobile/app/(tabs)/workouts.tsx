@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 
 import FitCard from "@/components/FitCard"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import { setCachedActiveWorkout } from "@/lib/activeWorkoutCache"
 import { getMobileTemplates, startMobileWorkout } from "@/lib/api"
 import {
   MobileTemplatesResponse,
@@ -88,12 +89,15 @@ export default function WorkoutsScreen() {
   const nextTemplate = data?.plan.nextTemplate ?? null
 
   async function handleStartWorkout(templateId?: string) {
+    if (startingTemplateId) return
+
     try {
       triggerMediumHaptic()
       setError(null)
       setStartingTemplateId(templateId || "queued")
 
       const activeWorkout = await startMobileWorkout(getToken, templateId)
+      setCachedActiveWorkout(activeWorkout)
 
       router.push({
         pathname: "/workout/[id]",
@@ -106,6 +110,17 @@ export default function WorkoutsScreen() {
     } finally {
       setStartingTemplateId(null)
     }
+  }
+
+  function openTemplate(templateId: string) {
+    triggerLightHaptic()
+
+    router.push({
+      pathname: "/template/[id]",
+      params: {
+        id: templateId,
+      },
+    })
   }
 
   if (loading && !data) {
@@ -148,9 +163,7 @@ export default function WorkoutsScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Workout</Text>
-            <Text style={styles.subtitle}>
-              Start your queued workout plan.
-            </Text>
+            <Text style={styles.subtitle}>Start your queued workout plan.</Text>
           </View>
 
           <View style={styles.templateCountPill}>
@@ -184,7 +197,7 @@ export default function WorkoutsScreen() {
           </Text>
 
           <Pressable
-            onPress={() => handleStartWorkout(nextTemplate?.id)}
+            onPress={() => handleStartWorkout()}
             disabled={Boolean(startingTemplateId)}
             style={({ pressed }) => [
               styles.startButton,
@@ -192,8 +205,7 @@ export default function WorkoutsScreen() {
               startingTemplateId ? styles.startButtonDisabled : null,
             ]}
           >
-            {startingTemplateId === nextTemplate?.id ||
-            startingTemplateId === "queued" ? (
+            {startingTemplateId === "queued" ? (
               <ActivityIndicator color={colors.background} />
             ) : (
               <>
@@ -219,7 +231,7 @@ export default function WorkoutsScreen() {
               index={index}
               isNext={template.id === nextTemplate?.id}
               isStarting={startingTemplateId === template.id}
-              onStart={() => handleStartWorkout(template.id)}
+              onPress={() => openTemplate(template.id)}
             />
           ))
         ) : (
@@ -240,7 +252,7 @@ export default function WorkoutsScreen() {
                 index={index}
                 isNext={false}
                 isStarting={startingTemplateId === template.id}
-                onStart={() => handleStartWorkout(template.id)}
+                onPress={() => openTemplate(template.id)}
               />
             ))}
           </>
@@ -270,21 +282,18 @@ function TemplateCard({
   index,
   isNext,
   isStarting,
-  onStart,
+  onPress,
 }: {
   template: MobileWorkoutTemplate
   index: number
   isNext: boolean
   isStarting: boolean
-  onStart: () => void
+  onPress: () => void
 }) {
   return (
     <FitCard
       style={[styles.templateCard, isNext && styles.nextTemplateCard]}
-      onPress={() => {
-        triggerLightHaptic()
-        onStart()
-      }}
+      onPress={onPress}
     >
       <View style={styles.templateRow}>
         <View style={[styles.templateNumber, isNext && styles.nextNumber]}>
@@ -314,7 +323,7 @@ function TemplateCard({
         {isStarting ? (
           <ActivityIndicator color={colors.teal} />
         ) : (
-          <Ionicons name="play-circle-outline" size={24} color={colors.textMuted} />
+          <Ionicons name="chevron-forward" size={21} color={colors.textMuted} />
         )}
       </View>
     </FitCard>
@@ -343,7 +352,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 124,
+    paddingBottom: 130,
     gap: spacing.md,
   },
   loadingText: {

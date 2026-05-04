@@ -15,7 +15,8 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import { getMobileHome } from "@/lib/api"
+import { setCachedActiveWorkout } from "@/lib/activeWorkoutCache"
+import { getMobileHome, startMobileWorkout } from "@/lib/api"
 import { MobileHomeResponse } from "@/types/home"
 
 function getFirstName(name?: string | null) {
@@ -29,6 +30,7 @@ export default function HomeScreen() {
   const [data, setData] = useState<MobileHomeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [startingWorkout, setStartingWorkout] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const loadHome = useCallback(
@@ -57,6 +59,29 @@ export default function HomeScreen() {
   useEffect(() => {
     loadHome()
   }, [loadHome])
+
+  async function handleStartNextWorkout() {
+    if (startingWorkout) return
+
+    try {
+      setStartingWorkout(true)
+      setError(null)
+
+      const activeWorkout = await startMobileWorkout(getToken)
+      setCachedActiveWorkout(activeWorkout)
+
+      router.push({
+        pathname: "/workout/[id]",
+        params: {
+          id: activeWorkout.workout.id,
+        },
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start workout")
+    } finally {
+      setStartingWorkout(false)
+    }
+  }
 
   if (loading && !data) {
     return (
@@ -119,6 +144,14 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {error ? (
+          <FitCard>
+            <Text selectable style={styles.inlineError}>
+              {error}
+            </Text>
+          </FitCard>
+        ) : null}
+
         <FitCard>
           <Text style={styles.welcome}>
             Welcome back, {getFirstName(profile?.display_name)}
@@ -127,7 +160,7 @@ export default function HomeScreen() {
           <Text style={styles.quoteAuthor}>— {profile?.daily_quote.author}</Text>
         </FitCard>
 
-        <FitCard accent onPress={() => router.push("/workouts")}>
+        <FitCard accent onPress={handleStartNextWorkout}>
           <View style={styles.nextHeader}>
             <View style={styles.nextTextBlock}>
               <Text style={styles.eyebrow}>
@@ -139,12 +172,16 @@ export default function HomeScreen() {
               <Text style={styles.nextDetail}>
                 {nextTemplate
                   ? `${nextTemplate.exercise_count ?? 0} exercises`
-                  : "Start a free workout"}
+                  : "Create a workout plan first"}
               </Text>
             </View>
 
             <View style={styles.startCircle}>
-              <Ionicons name="play" size={24} color={colors.background} />
+              {startingWorkout ? (
+                <ActivityIndicator color={colors.background} />
+              ) : (
+                <Ionicons name="play" size={24} color={colors.background} />
+              )}
             </View>
           </View>
         </FitCard>
@@ -281,7 +318,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 110,
+    paddingBottom: 130,
     gap: spacing.md,
   },
   centered: {
@@ -306,6 +343,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: "center",
     marginBottom: spacing.lg,
+  },
+  inlineError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   retryText: {
     color: colors.text,

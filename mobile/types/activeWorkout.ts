@@ -5,6 +5,7 @@ export type MobileExerciseSet = {
     reps: number
     weight_kg: number | string
     created_at?: string
+    completed?: boolean
   }
   
   export type MobileWorkoutExercise = {
@@ -15,6 +16,11 @@ export type MobileExerciseSet = {
     muscle_group: string | null
     order_index: number | null
     sets: MobileExerciseSet[]
+    last_session?: {
+      set_number: number
+      weight_kg: number | string
+      reps: number
+    }[]
   }
   
   export type MobileWorkout = {
@@ -28,5 +34,11 @@ export type MobileExerciseSet = {
   
   export type MobileActiveWorkoutResponse = {
     workout: MobileWorkout
+    template?: {
+      id: string
+      name: string
+    }
     exercises: MobileWorkoutExercise[]
+    startedFromTemplateId?: string
+    startedFromQueuedTemplate?: boolean
   }
