@@ -5,6 +5,7 @@ import { router } from "expo-router"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,8 +18,17 @@ import { SafeAreaView } from "react-native-safe-area-context"
 
 import FitCard from "@/components/FitCard"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import { setCachedActiveWorkout } from "@/lib/activeWorkoutCache"
-import { getMobileTemplates, startMobileWorkout } from "@/lib/api"
+import {
+  setCachedActiveWorkout,
+  setCachedActiveWorkoutForId,
+} from "@/lib/activeWorkoutCache"
+import {
+  getMobileTemplates,
+  setMobileNextTemplate,
+  startMobileWorkout,
+  updateMobileTemplatePlanStatus,
+} from "@/lib/api"
+import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -47,6 +57,8 @@ export default function WorkoutsScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [startingTemplateId, setStartingTemplateId] = useState<string | null>(null)
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<MobileWorkoutTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadTemplates = useCallback(
@@ -88,37 +100,175 @@ export default function WorkoutsScreen() {
 
   const nextTemplate = data?.plan.nextTemplate ?? null
 
-  async function handleStartWorkout(templateId?: string) {
+  function updateLocalNextTemplate(templateId: string, lastPlanIndex: number) {
+    setData((current) => {
+      if (!current) return current
+
+      const nextTemplateValue =
+        current.templates.find((template) => template.id === templateId) ?? null
+
+      const nextPlanIndex = planTemplates.findIndex(
+        (template) => template.id === templateId
+      )
+
+      return {
+        ...current,
+        plan: {
+          ...current.plan,
+          lastPlanIndex,
+          nextPlanIndex,
+          nextTemplate: nextTemplateValue,
+        },
+      }
+    })
+  }
+
+  async function handleSetNextTemplate(template: MobileWorkoutTemplate) {
+    try {
+      triggerLightHaptic()
+      setError(null)
+
+      const result = await setMobileNextTemplate(getToken, template.id)
+      updateLocalNextTemplate(template.id, result.last_plan_index)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set next workout")
+    }
+  }
+
+  async function handleAddToPlan(template: MobileWorkoutTemplate) {
+    try {
+      triggerLightHaptic()
+      setError(null)
+
+      await updateMobileTemplatePlanStatus(getToken, template.id, {
+        in_plan: true,
+        plan_order: planTemplates.length,
+      })
+
+      await loadTemplates(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add to plan")
+    }
+  }
+
+  async function handleRemoveFromPlan(template: MobileWorkoutTemplate) {
+    try {
+      triggerLightHaptic()
+      setError(null)
+
+      await updateMobileTemplatePlanStatus(getToken, template.id, {
+        in_plan: false,
+        plan_order: null,
+      })
+
+      await loadTemplates(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove from plan")
+    }
+  }
+
+  async function movePlanTemplate(template: MobileWorkoutTemplate, direction: -1 | 1) {
+    const currentIndex = planTemplates.findIndex((item) => item.id === template.id)
+    const nextIndex = currentIndex + direction
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= planTemplates.length) {
+      return
+    }
+
+    const reordered = [...planTemplates]
+    const [moved] = reordered.splice(currentIndex, 1)
+    reordered.splice(nextIndex, 0, moved)
+
+    setData((current) => {
+      if (!current) return current
+
+      const nextTemplates = current.templates.map((item) => {
+        const orderIndex = reordered.findIndex((planItem) => planItem.id === item.id)
+
+        if (orderIndex === -1) return item
+
+        return {
+          ...item,
+          plan_order: orderIndex,
+        }
+      })
+
+      return {
+        ...current,
+        templates: nextTemplates,
+      }
+    })
+
+    try {
+      await Promise.all(
+        reordered.map((item, index) =>
+          updateMobileTemplatePlanStatus(getToken, item.id, {
+            plan_order: index,
+          })
+        )
+      )
+
+      await loadTemplates(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reorder plan")
+      await loadTemplates(true)
+    }
+  }
+
+  async function handleStartWorkout(template: MobileWorkoutTemplate) {
     if (startingTemplateId) return
+
+    const draftWorkout = buildDraftWorkoutFromTemplate({
+      template,
+      startedFromQueuedTemplate: template.id === nextTemplate?.id,
+    })
 
     try {
       triggerMediumHaptic()
       setError(null)
-      setStartingTemplateId(templateId || "queued")
+      setSelectedTemplate(null)
+      setStartingTemplateId(template.id)
 
-      const activeWorkout = await startMobileWorkout(getToken, templateId)
-      setCachedActiveWorkout(activeWorkout)
+      setCachedActiveWorkout(draftWorkout)
 
       router.push({
         pathname: "/workout/[id]",
         params: {
-          id: activeWorkout.workout.id,
+          id: draftWorkout.workout.id,
         },
       })
+
+      startMobileWorkout(getToken, template.id)
+        .then((realWorkout) => {
+          setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
+          setCachedActiveWorkout(realWorkout)
+        })
+        .catch((err: unknown) => {
+          const message =
+            err instanceof Error ? err.message : "Failed to save workout"
+          setError(message)
+        })
+        .finally(() => {
+          setStartingTemplateId(null)
+        })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start workout")
-    } finally {
       setStartingTemplateId(null)
+      setError(err instanceof Error ? err.message : "Failed to start workout")
     }
   }
 
-  function openTemplate(templateId: string) {
+  function openTemplateActions(template: MobileWorkoutTemplate) {
     triggerLightHaptic()
+    setSelectedTemplate(template)
+  }
+
+  function editTemplate(template: MobileWorkoutTemplate) {
+    setSelectedTemplate(null)
 
     router.push({
       pathname: "/template/[id]",
       params: {
-        id: templateId,
+        id: template.id,
       },
     })
   }
@@ -163,7 +313,7 @@ export default function WorkoutsScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Workout</Text>
-            <Text style={styles.subtitle}>Start your queued workout plan.</Text>
+            <Text style={styles.subtitle}>Start or manage your plan.</Text>
           </View>
 
           <View style={styles.templateCountPill}>
@@ -193,26 +343,30 @@ export default function WorkoutsScreen() {
           <Text style={styles.heroDetail}>
             {nextTemplate
               ? formatExerciseCount(nextTemplate.exercise_count)
-              : "Create or add templates to your plan"}
+              : "Add templates to your plan first"}
           </Text>
 
           <Pressable
-            onPress={() => handleStartWorkout()}
-            disabled={Boolean(startingTemplateId)}
+            onPress={() => {
+              if (nextTemplate) {
+                handleStartWorkout(nextTemplate)
+              }
+            }}
+            disabled={!nextTemplate || Boolean(startingTemplateId)}
             style={({ pressed }) => [
               styles.startButton,
               pressed && !startingTemplateId ? styles.startButtonPressed : null,
-              startingTemplateId ? styles.startButtonDisabled : null,
+              !nextTemplate || startingTemplateId
+                ? styles.startButtonDisabled
+                : null,
             ]}
           >
-            {startingTemplateId === "queued" ? (
+            {startingTemplateId === nextTemplate?.id ? (
               <ActivityIndicator color={colors.background} />
             ) : (
               <>
                 <Ionicons name="play" size={20} color={colors.background} />
-                <Text style={styles.startButtonText}>
-                  {nextTemplate ? "Start Workout" : "Empty Workout"}
-                </Text>
+                <Text style={styles.startButtonText}>Start Workout</Text>
               </>
             )}
           </Pressable>
@@ -231,7 +385,13 @@ export default function WorkoutsScreen() {
               index={index}
               isNext={template.id === nextTemplate?.id}
               isStarting={startingTemplateId === template.id}
-              onPress={() => openTemplate(template.id)}
+              isFirst={index === 0}
+              isLast={index === planTemplates.length - 1}
+              onPress={() => openTemplateActions(template)}
+              onSetNext={() => handleSetNextTemplate(template)}
+              onMoveUp={() => movePlanTemplate(template, -1)}
+              onMoveDown={() => movePlanTemplate(template, 1)}
+              onRemove={() => handleRemoveFromPlan(template)}
             />
           ))
         ) : (
@@ -245,19 +405,32 @@ export default function WorkoutsScreen() {
               detail={`${otherTemplates.length} saved`}
             />
 
-            {otherTemplates.map((template, index) => (
-              <TemplateCard
+            {otherTemplates.map((template) => (
+              <OtherTemplateCard
                 key={template.id}
                 template={template}
-                index={index}
-                isNext={false}
-                isStarting={startingTemplateId === template.id}
-                onPress={() => openTemplate(template.id)}
+                onPress={() => openTemplateActions(template)}
+                onAddToPlan={() => handleAddToPlan(template)}
               />
             ))}
           </>
         )}
       </ScrollView>
+
+      <TemplateActionModal
+        template={selectedTemplate}
+        onClose={() => setSelectedTemplate(null)}
+        onStart={() => {
+          if (selectedTemplate) {
+            handleStartWorkout(selectedTemplate)
+          }
+        }}
+        onEdit={() => {
+          if (selectedTemplate) {
+            editTemplate(selectedTemplate)
+          }
+        }}
+      />
     </SafeAreaView>
   )
 }
@@ -282,13 +455,25 @@ function TemplateCard({
   index,
   isNext,
   isStarting,
+  isFirst,
+  isLast,
   onPress,
+  onSetNext,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
 }: {
   template: MobileWorkoutTemplate
   index: number
   isNext: boolean
   isStarting: boolean
+  isFirst: boolean
+  isLast: boolean
   onPress: () => void
+  onSetNext: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onRemove: () => void
 }) {
   return (
     <FitCard
@@ -300,7 +485,7 @@ function TemplateCard({
           <Text
             style={[styles.templateNumberText, isNext && styles.nextNumberText]}
           >
-            {template.in_plan ? index + 1 : "•"}
+            {index + 1}
           </Text>
         </View>
 
@@ -323,8 +508,85 @@ function TemplateCard({
         {isStarting ? (
           <ActivityIndicator color={colors.teal} />
         ) : (
-          <Ionicons name="chevron-forward" size={21} color={colors.textMuted} />
+          <View style={styles.cardActions}>
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation()
+                onSetNext()
+              }}
+              style={styles.smallButton}
+            >
+              <Text style={styles.smallButtonText}>Next</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation()
+                onMoveUp()
+              }}
+              disabled={isFirst}
+              style={[styles.iconButton, isFirst && styles.disabledIconButton]}
+            >
+              <Ionicons name="chevron-up" size={16} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation()
+                onMoveDown()
+              }}
+              disabled={isLast}
+              style={[styles.iconButton, isLast && styles.disabledIconButton]}
+            >
+              <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+            </Pressable>
+
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation()
+                onRemove()
+              }}
+              style={styles.iconButton}
+            >
+              <Ionicons name="remove" size={17} color={colors.red} />
+            </Pressable>
+          </View>
         )}
+      </View>
+    </FitCard>
+  )
+}
+
+function OtherTemplateCard({
+  template,
+  onPress,
+  onAddToPlan,
+}: {
+  template: MobileWorkoutTemplate
+  onPress: () => void
+  onAddToPlan: () => void
+}) {
+  return (
+    <FitCard style={styles.templateCard} onPress={onPress}>
+      <View style={styles.templateRow}>
+        <View style={styles.templateBody}>
+          <Text style={styles.templateName}>{template.name}</Text>
+          <Text style={styles.templateDetail}>
+            {formatExerciseCount(template.exercise_count)}
+          </Text>
+        </View>
+
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation()
+            onAddToPlan()
+          }}
+          style={styles.smallButton}
+        >
+          <Text style={styles.smallButtonText}>+ Plan</Text>
+        </Pressable>
+
+        <Ionicons name="chevron-forward" size={21} color={colors.textMuted} />
       </View>
     </FitCard>
   )
@@ -335,6 +597,50 @@ function EmptyCard({ text }: { text: string }) {
     <FitCard>
       <Text style={styles.emptyText}>{text}</Text>
     </FitCard>
+  )
+}
+
+function TemplateActionModal({
+  template,
+  onClose,
+  onStart,
+  onEdit,
+}: {
+  template: MobileWorkoutTemplate | null
+  onClose: () => void
+  onStart: () => void
+  onEdit: () => void
+}) {
+  return (
+    <Modal
+      visible={Boolean(template)}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalCard}>
+          <Text style={styles.modalTitle}>{template?.name}</Text>
+          <Text style={styles.modalSubtitle}>
+            {formatExerciseCount(template?.exercise_count ?? 0)}
+          </Text>
+
+          <Pressable style={styles.modalPrimaryButton} onPress={onStart}>
+            <Ionicons name="play" size={19} color={colors.background} />
+            <Text style={styles.modalPrimaryButtonText}>Start Workout</Text>
+          </Pressable>
+
+          <Pressable style={styles.modalSecondaryButton} onPress={onEdit}>
+            <Ionicons name="create-outline" size={19} color={colors.text} />
+            <Text style={styles.modalSecondaryButtonText}>Edit Template</Text>
+          </Pressable>
+
+          <Pressable style={styles.modalCancelButton} onPress={onClose}>
+            <Text style={styles.modalCancelText}>Cancel</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   )
 }
 
@@ -448,14 +754,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.sm,
-  },
+    gap: 8,
+    },
   startButtonPressed: {
     opacity: 0.82,
     transform: [{ scale: 0.985 }],
   },
   startButtonDisabled: {
-    opacity: 0.65,
+    opacity: 0.55,
   },
   startButtonText: {
     color: colors.background,
@@ -517,8 +823,8 @@ const styles = StyleSheet.create({
   templateTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-  },
+    gap: 8,
+    },
   templateName: {
     color: colors.text,
     fontSize: 16,
@@ -545,10 +851,103 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textTransform: "uppercase",
   },
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  smallButton: {
+    minHeight: 34,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  smallButtonText: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  iconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  disabledIconButton: {
+    opacity: 0.3,
+  },
   emptyText: {
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: "700",
     textAlign: "center",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    justifyContent: "flex-end",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "900",
+    textTransform: "capitalize",
+  },
+  modalSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: -8,
+  },
+  modalPrimaryButton: {
+    minHeight: 54,
+    borderRadius: radius.lg,
+    backgroundColor: colors.teal,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    },
+  modalPrimaryButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  modalSecondaryButton: {
+    minHeight: 54,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    },
+  modalSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  modalCancelButton: {
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCancelText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: "800",
   },
 })

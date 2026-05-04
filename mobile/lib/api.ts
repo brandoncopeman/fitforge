@@ -48,7 +48,7 @@ export async function getMobileTemplates(
 
 export async function startMobileWorkout(
   getToken: GetToken,
-  templateId?: string
+  templateId: string
 ): Promise<MobileActiveWorkoutResponse> {
   return apiFetch<MobileActiveWorkoutResponse>(
     "/api/mobile/workouts/start",
@@ -70,4 +70,35 @@ export async function getMobileWorkout(
     `/api/workouts/${workoutId}`,
     getToken
   )
+}
+
+export async function setMobileNextTemplate(
+  getToken: GetToken,
+  templateId: string
+) {
+  return apiFetch<{
+    success: boolean
+    next_template_id: string
+    last_plan_index: number
+  }>("/api/profile/set-next-template", getToken, {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: templateId,
+    }),
+  })
+}
+
+export async function updateMobileTemplatePlanStatus(
+  getToken: GetToken,
+  templateId: string,
+  body: {
+    in_plan?: boolean
+    plan_order?: number | null
+    name?: string
+  }
+) {
+  return apiFetch(`/api/templates/${templateId}`, getToken, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
 }

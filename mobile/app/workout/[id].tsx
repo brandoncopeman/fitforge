@@ -17,7 +17,10 @@ import { SafeAreaView } from "react-native-safe-area-context"
 
 import FitCard from "@/components/FitCard"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import { getCachedActiveWorkout } from "@/lib/activeWorkoutCache"
+import {
+  getCachedActiveWorkout,
+  subscribeToCachedActiveWorkout,
+} from "@/lib/activeWorkoutCache"
 import { getMobileWorkout } from "@/lib/api"
 import {
   MobileActiveWorkoutResponse,
@@ -76,8 +79,25 @@ export default function ActiveWorkoutScreen() {
   )
 
   useEffect(() => {
-    loadWorkout(Boolean(data))
-  }, [loadWorkout])
+    if (!id) return
+  
+    if (id.startsWith("draft-workout")) {
+      setLoading(false)
+      return
+    }
+  
+    loadWorkout(false)
+  }, [id, loadWorkout])
+
+  useEffect(() => {
+    if (!id) return
+  
+    return subscribeToCachedActiveWorkout(id, (workout) => {
+      setData(workout)
+      setLoading(false)
+      setError(null)
+    })
+  }, [id])
 
   const totalSets = useMemo(() => {
     return data?.exercises.reduce(
