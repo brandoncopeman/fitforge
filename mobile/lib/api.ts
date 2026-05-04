@@ -1,3 +1,4 @@
+import { MobileActiveWorkoutResponse } from "@/types/activeWorkout"
 import { MobileHomeResponse } from "@/types/home"
 import { MobileTemplatesResponse } from "@/types/workouts"
 
@@ -5,7 +6,11 @@ const API_BASE_URL = "https://myfitforge.vercel.app"
 
 type GetToken = () => Promise<string | null>
 
-async function apiFetch<T>(path: string, getToken: GetToken): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  getToken: GetToken,
+  options?: RequestInit
+): Promise<T> {
   const token = await getToken()
 
   if (!token) {
@@ -13,8 +18,11 @@ async function apiFetch<T>(path: string, getToken: GetToken): Promise<T> {
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
     headers: {
       Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(options?.headers ?? {}),
     },
   })
 
@@ -36,4 +44,30 @@ export async function getMobileTemplates(
   getToken: GetToken
 ): Promise<MobileTemplatesResponse> {
   return apiFetch<MobileTemplatesResponse>("/api/mobile/templates", getToken)
+}
+
+export async function startMobileWorkout(
+  getToken: GetToken,
+  templateId?: string
+): Promise<MobileActiveWorkoutResponse> {
+  return apiFetch<MobileActiveWorkoutResponse>(
+    "/api/mobile/workouts/start",
+    getToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        template_id: templateId,
+      }),
+    }
+  )
+}
+
+export async function getMobileWorkout(
+  getToken: GetToken,
+  workoutId: string
+): Promise<MobileActiveWorkoutResponse> {
+  return apiFetch<MobileActiveWorkoutResponse>(
+    `/api/workouts/${workoutId}`,
+    getToken
+  )
 }

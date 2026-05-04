@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons"
 import { useAuth } from "@clerk/clerk-expo"
 import * as Haptics from "expo-haptics"
+import { router } from "expo-router"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ActivityIndicator,
@@ -16,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 
 import FitCard from "@/components/FitCard"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import { getMobileTemplates } from "@/lib/api"
+import { getMobileTemplates, startMobileWorkout } from "@/lib/api"
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -44,6 +45,7 @@ export default function WorkoutsScreen() {
   const [data, setData] = useState<MobileTemplatesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [startingTemplateId, setStartingTemplateId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadTemplates = useCallback(
@@ -84,6 +86,27 @@ export default function WorkoutsScreen() {
   )
 
   const nextTemplate = data?.plan.nextTemplate ?? null
+
+  async function handleStartWorkout(templateId?: string) {
+    try {
+      triggerMediumHaptic()
+      setError(null)
+      setStartingTemplateId(templateId || "queued")
+
+      const activeWorkout = await startMobileWorkout(getToken, templateId)
+
+      router.push({
+        pathname: "/workout/[id]",
+        params: {
+          id: activeWorkout.workout.id,
+        },
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start workout")
+    } finally {
+      setStartingTemplateId(null)
+    }
+  }
 
   if (loading && !data) {
     return (
@@ -126,7 +149,7 @@ export default function WorkoutsScreen() {
           <View>
             <Text style={styles.title}>Workout</Text>
             <Text style={styles.subtitle}>
-              Fast native templates and active workout flow
+              Start your queued workout plan.
             </Text>
           </View>
 
@@ -136,6 +159,14 @@ export default function WorkoutsScreen() {
             </Text>
           </View>
         </View>
+
+        {error ? (
+          <FitCard>
+            <Text selectable style={styles.inlineError}>
+              {error}
+            </Text>
+          </FitCard>
+        ) : null}
 
         <FitCard accent>
           <Text style={styles.eyebrow}>
@@ -153,22 +184,31 @@ export default function WorkoutsScreen() {
           </Text>
 
           <Pressable
-            onPress={triggerMediumHaptic}
+            onPress={() => handleStartWorkout(nextTemplate?.id)}
+            disabled={Boolean(startingTemplateId)}
             style={({ pressed }) => [
               styles.startButton,
-              pressed && styles.startButtonPressed,
+              pressed && !startingTemplateId ? styles.startButtonPressed : null,
+              startingTemplateId ? styles.startButtonDisabled : null,
             ]}
           >
-            <Ionicons name="play" size={20} color={colors.background} />
-            <Text style={styles.startButtonText}>
-              {nextTemplate ? "Start Workout" : "Empty Workout"}
-            </Text>
+            {startingTemplateId === nextTemplate?.id ||
+            startingTemplateId === "queued" ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <>
+                <Ionicons name="play" size={20} color={colors.background} />
+                <Text style={styles.startButtonText}>
+                  {nextTemplate ? "Start Workout" : "Empty Workout"}
+                </Text>
+              </>
+            )}
           </Pressable>
         </FitCard>
 
         <SectionTitle
-          title="Plan templates"
-          detail={`${planTemplates.length} in plan`}
+          title="Workout plan"
+          detail={`${planTemplates.length} queued`}
         />
 
         {planTemplates.length > 0 ? (
@@ -178,10 +218,12 @@ export default function WorkoutsScreen() {
               template={template}
               index={index}
               isNext={template.id === nextTemplate?.id}
+              isStarting={startingTemplateId === template.id}
+              onStart={() => handleStartWorkout(template.id)}
             />
           ))
         ) : (
-          <EmptyCard text="No templates in your plan yet." />
+          <EmptyCard text="No templates in your workout plan yet." />
         )}
 
         {otherTemplates.length > 0 && (
@@ -197,6 +239,8 @@ export default function WorkoutsScreen() {
                 template={template}
                 index={index}
                 isNext={false}
+                isStarting={startingTemplateId === template.id}
+                onStart={() => handleStartWorkout(template.id)}
               />
             ))}
           </>
@@ -206,7 +250,13 @@ export default function WorkoutsScreen() {
   )
 }
 
-function SectionTitle({ title, detail }: { title: string; detail: string }) {
+function SectionTitle({
+  title,
+  detail,
+}: {
+  title: string
+  detail: string
+}) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -219,15 +269,22 @@ function TemplateCard({
   template,
   index,
   isNext,
+  isStarting,
+  onStart,
 }: {
   template: MobileWorkoutTemplate
   index: number
   isNext: boolean
+  isStarting: boolean
+  onStart: () => void
 }) {
   return (
     <FitCard
       style={[styles.templateCard, isNext && styles.nextTemplateCard]}
-      onPress={triggerLightHaptic}
+      onPress={() => {
+        triggerLightHaptic()
+        onStart()
+      }}
     >
       <View style={styles.templateRow}>
         <View style={[styles.templateNumber, isNext && styles.nextNumber]}>
@@ -254,7 +311,11 @@ function TemplateCard({
           </Text>
         </View>
 
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        {isStarting ? (
+          <ActivityIndicator color={colors.teal} />
+        ) : (
+          <Ionicons name="play-circle-outline" size={24} color={colors.textMuted} />
+        )}
       </View>
     </FitCard>
   )
@@ -282,7 +343,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 110,
+    paddingBottom: 124,
     gap: spacing.md,
   },
   loadingText: {
@@ -300,6 +361,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: "center",
     marginBottom: spacing.lg,
+  },
+  inlineError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   retryText: {
     color: colors.text,
@@ -377,6 +444,9 @@ const styles = StyleSheet.create({
   startButtonPressed: {
     opacity: 0.82,
     transform: [{ scale: 0.985 }],
+  },
+  startButtonDisabled: {
+    opacity: 0.65,
   },
   startButtonText: {
     color: colors.background,
