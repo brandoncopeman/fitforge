@@ -28,6 +28,7 @@ import {
 } from "@/lib/activeWorkoutCache";
 import { getMobileWorkout } from "@/lib/api";
 import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache";
+import { getCachedHome, setCachedHome } from "@/lib/homeCache"
 import {
   MobileActiveWorkoutResponse,
   MobileExerciseSet,
@@ -1171,47 +1172,72 @@ export default function ActiveWorkoutScreen() {
     setTemplateUpdateStatus("saved")
   
     const exercisesForTemplate = buildTemplateOverwriteExercises(current)
+  
+    const optimisticTemplateExercises = exercisesForTemplate.map(
+      (exercise, index) => ({
+        id: `local-template-exercise-${templateId}-${index}`,
+        template_id: templateId,
+        exercise_name: exercise.exercise_name,
+        muscle_group: exercise.muscle_group,
+        order_index: exercise.order_index,
+        default_sets: exercise.default_sets,
+        default_reps: exercise.default_reps,
+        default_weight_kg: exercise.default_weight_kg,
+        default_duration_minutes: exercise.default_duration_minutes,
+        default_speed: exercise.default_speed,
+        default_distance: exercise.default_distance,
+        default_incline: exercise.default_incline,
+      })
+    )
+  
     const cachedTemplates = getCachedTemplates()
   
-    // Update mobile cache immediately so starting the template again uses the
-    // latest active workout values even before the server responds.
-    if (cachedTemplates) {
-      const nextTemplates = cachedTemplates.templates.map((template) => {
-        if (template.id !== templateId) return template
+    let optimisticUpdatedTemplate: MobileWorkoutTemplate | null = null
   
-        return {
-          ...template,
-          exercise_count: exercisesForTemplate.length,
-          exercises: exercisesForTemplate.map((exercise, index) => ({
-            id: `local-template-exercise-${templateId}-${index}`,
-            template_id: templateId,
-            exercise_name: exercise.exercise_name,
-            muscle_group: exercise.muscle_group,
-            order_index: exercise.order_index,
-            default_sets: exercise.default_sets,
-            default_reps: exercise.default_reps,
-            default_weight_kg: exercise.default_weight_kg,
-            default_duration_minutes: exercise.default_duration_minutes,
-            default_speed: exercise.default_speed,
-            default_distance: exercise.default_distance,
-            default_incline: exercise.default_incline,
-          })),
+    if (cachedTemplates) {
+      const existingTemplate =
+        cachedTemplates.templates.find((template) => template.id === templateId) ??
+        cachedTemplates.plan.nextTemplate
+  
+      if (existingTemplate) {
+        optimisticUpdatedTemplate = {
+          ...existingTemplate,
+          exercise_count: optimisticTemplateExercises.length,
+          exercises: optimisticTemplateExercises,
           lastSetsByExercise: {},
         }
-      })
   
-      const nextTemplate =
-        cachedTemplates.plan.nextTemplate?.id === templateId
-          ? nextTemplates.find((template) => template.id === templateId) ??
-            cachedTemplates.plan.nextTemplate
-          : cachedTemplates.plan.nextTemplate
+        const nextTemplates = cachedTemplates.templates.map((template) =>
+          template.id === templateId ? optimisticUpdatedTemplate! : template
+        )
   
-      setCachedTemplates({
-        ...cachedTemplates,
-        templates: nextTemplates,
+        const nextTemplate =
+          cachedTemplates.plan.nextTemplate?.id === templateId
+            ? optimisticUpdatedTemplate
+            : cachedTemplates.plan.nextTemplate
+  
+        setCachedTemplates({
+          ...cachedTemplates,
+          templates: nextTemplates,
+          plan: {
+            ...cachedTemplates.plan,
+            nextTemplate,
+          },
+        })
+      }
+    }
+  
+    const cachedHome = getCachedHome()
+  
+    if (
+      cachedHome?.plan?.nextTemplate?.id === templateId &&
+      optimisticUpdatedTemplate
+    ) {
+      setCachedHome({
+        ...cachedHome,
         plan: {
-          ...cachedTemplates.plan,
-          nextTemplate,
+          ...cachedHome.plan,
+          nextTemplate: optimisticUpdatedTemplate,
         },
       })
     }
@@ -1228,32 +1254,48 @@ export default function ActiveWorkoutScreen() {
       .then((updatedTemplate) => {
         const latestCachedTemplates = getCachedTemplates()
   
-        if (!latestCachedTemplates) return
+        if (latestCachedTemplates) {
+          const nextTemplates = latestCachedTemplates.templates.map((template) =>
+            template.id === updatedTemplate.id
+              ? {
+                  ...template,
+                  ...updatedTemplate,
+                  lastSetsByExercise: updatedTemplate.lastSetsByExercise ?? {},
+                }
+              : template
+          )
   
-        const nextTemplates = latestCachedTemplates.templates.map((template) =>
-          template.id === updatedTemplate.id
-            ? {
-                ...template,
+          const nextTemplate =
+            latestCachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
+              ? nextTemplates.find(
+                  (template) => template.id === updatedTemplate.id
+                ) ?? latestCachedTemplates.plan.nextTemplate
+              : latestCachedTemplates.plan.nextTemplate
+  
+          setCachedTemplates({
+            ...latestCachedTemplates,
+            templates: nextTemplates,
+            plan: {
+              ...latestCachedTemplates.plan,
+              nextTemplate,
+            },
+          })
+        }
+  
+        const latestCachedHome = getCachedHome()
+  
+        if (latestCachedHome?.plan?.nextTemplate?.id === updatedTemplate.id) {
+          setCachedHome({
+            ...latestCachedHome,
+            plan: {
+              ...latestCachedHome.plan,
+              nextTemplate: {
+                ...latestCachedHome.plan.nextTemplate,
                 ...updatedTemplate,
-                lastSetsByExercise: updatedTemplate.lastSetsByExercise ?? {},
-              }
-            : template
-        )
-  
-        const nextTemplate =
-          latestCachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
-            ? nextTemplates.find((template) => template.id === updatedTemplate.id) ??
-              latestCachedTemplates.plan.nextTemplate
-            : latestCachedTemplates.plan.nextTemplate
-  
-        setCachedTemplates({
-          ...latestCachedTemplates,
-          templates: nextTemplates,
-          plan: {
-            ...latestCachedTemplates.plan,
-            nextTemplate,
-          },
-        })
+              },
+            },
+          })
+        }
       })
       .catch((err: unknown) => {
         console.warn("Failed to update template from workout", err)

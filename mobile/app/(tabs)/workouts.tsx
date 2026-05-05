@@ -1,8 +1,8 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import * as Haptics from "expo-haptics"
-import { router } from "expo-router"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -13,43 +13,47 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import FitCard from "@/components/FitCard"
-import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import FitCard from "@/components/FitCard";
+import { colors, radius, spacing } from "@/constants/fitforgeTheme";
 import {
   setCachedActiveWorkout,
   setCachedActiveWorkoutForId,
-} from "@/lib/activeWorkoutCache"
+} from "@/lib/activeWorkoutCache";
 import {
   createMobileTemplate,
   getMobileTemplates,
   setMobileNextTemplate,
   startMobileWorkout,
   updateMobileTemplatePlanStatus,
-} from "@/lib/api"
-import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
-import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache"
+} from "@/lib/api";
+import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout";
+import {
+  getCachedTemplates,
+  setCachedTemplates,
+  subscribeToTemplatesCache,
+} from "@/lib/templatesCache";
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
-} from "@/types/workouts"
+} from "@/types/workouts";
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   }
 }
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }
 }
 
 function formatExerciseCount(count: number) {
-  return `${count} exercise${count === 1 ? "" : "s"}`
+  return `${count} exercise${count === 1 ? "" : "s"}`;
 }
 
 function normalizeTemplatesResponse(
@@ -62,160 +66,178 @@ function normalizeTemplatesResponse(
       nextPlanIndex: response?.plan?.nextPlanIndex ?? -1,
       nextTemplate: response?.plan?.nextTemplate ?? null,
     },
-  }
+  };
 }
 
 function sortPlanTemplates(templates: MobileWorkoutTemplate[]) {
   return [...templates]
     .filter((template) => template.in_plan)
     .sort(
-      (a, b) =>
-        Number(a.plan_order ?? 9999) - Number(b.plan_order ?? 9999)
-    )
+      (a, b) => Number(a.plan_order ?? 9999) - Number(b.plan_order ?? 9999)
+    );
 }
 
 export default function WorkoutsScreen() {
-  const { getToken } = useAuth()
+  const { getToken } = useAuth();
 
   const [data, setData] = useState<MobileTemplatesResponse | null>(() => {
-    const cached = getCachedTemplates()
-    return cached ? normalizeTemplatesResponse(cached) : null
-  })
-  const [loading, setLoading] = useState(() => !getCachedTemplates())
-    const [refreshing, setRefreshing] = useState(false)
+    const cached = getCachedTemplates();
+    return cached ? normalizeTemplatesResponse(cached) : null;
+  });
+  const [loading, setLoading] = useState(() => !getCachedTemplates());
+  const [refreshing, setRefreshing] = useState(false);
   const [startingTemplateId, setStartingTemplateId] = useState<string | null>(
     null
-  )
+  );
   const [selectedTemplate, setSelectedTemplate] =
-    useState<MobileWorkoutTemplate | null>(null)
-  const [error, setError] = useState<string | null>(null)
+    useState<MobileWorkoutTemplate | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const localMutationAtRef = useRef(0)
-  const latestLoadStartedAtRef = useRef(0)
-  const dataRef = useRef<MobileTemplatesResponse | null>(data)
-  const getTokenRef = useRef(getToken)
-  
-  useEffect(() => {
-    dataRef.current = data
-  }, [data])
-  
-  useEffect(() => {
-    getTokenRef.current = getToken
-  }, [getToken])
+  const localMutationAtRef = useRef(0);
+  const latestLoadStartedAtRef = useRef(0);
+  const dataRef = useRef<MobileTemplatesResponse | null>(data);
+  const getTokenRef = useRef(getToken);
 
-  const currentData = useMemo(() => normalizeTemplatesResponse(data), [data])
-  const templates = useMemo(() => currentData.templates, [currentData.templates])
-  const planTemplates = useMemo(() => sortPlanTemplates(templates), [templates])
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  const currentData = useMemo(() => normalizeTemplatesResponse(data), [data]);
+  const templates = useMemo(
+    () => currentData.templates,
+    [currentData.templates]
+  );
+  const planTemplates = useMemo(
+    () => sortPlanTemplates(templates),
+    [templates]
+  );
 
   const otherTemplates = useMemo(
     () => templates.filter((template) => !template.in_plan),
     [templates]
-  )
+  );
 
-  const nextTemplate = currentData.plan.nextTemplate
+  const nextTemplate = currentData.plan.nextTemplate;
 
   const markLocalMutation = useCallback(() => {
-    localMutationAtRef.current = Date.now()
-  }, [])
+    localMutationAtRef.current = Date.now();
+  }, []);
 
   const loadTemplates = useCallback(async (isRefresh = false) => {
-    const requestStartedAt = Date.now()
-    latestLoadStartedAtRef.current = requestStartedAt
-  
+    const requestStartedAt = Date.now();
+    latestLoadStartedAtRef.current = requestStartedAt;
+
     try {
       if (isRefresh) {
-        setRefreshing(true)
+        setRefreshing(true);
       } else {
-        setLoading(!dataRef.current)
+        setLoading(!dataRef.current);
       }
-  
-      setError(null)
-  
-      const templatesResponse = await getMobileTemplates(getTokenRef.current)
-      const normalized = normalizeTemplatesResponse(templatesResponse)
-  
+
+      setError(null);
+
+      const templatesResponse = await getMobileTemplates(getTokenRef.current);
+      const normalized = normalizeTemplatesResponse(templatesResponse);
+
       const localChangedAfterRequest =
-        localMutationAtRef.current > requestStartedAt
-  
+        localMutationAtRef.current > requestStartedAt;
+
       const newerRequestStarted =
-        latestLoadStartedAtRef.current > requestStartedAt
-  
+        latestLoadStartedAtRef.current > requestStartedAt;
+
       if (localChangedAfterRequest || newerRequestStarted) {
-        return
+        return;
       }
-  
-      setCachedTemplates(normalized)
-      setData(normalized)
+
+      setCachedTemplates(normalized);
+      setData(normalized);
     } catch (err) {
-      console.warn("Failed to load workouts", err)
-  
+      console.warn("Failed to load workouts", err);
+
       if (!dataRef.current) {
-        setError(err instanceof Error ? err.message : "Failed to load workouts")
+        setError(
+          err instanceof Error ? err.message : "Failed to load workouts"
+        );
       }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    const cached = getCachedTemplates()
-  
+    const cached = getCachedTemplates();
+
     if (cached) {
-      const normalized = normalizeTemplatesResponse(cached)
+      const normalized = normalizeTemplatesResponse(cached);
+      dataRef.current = normalized;
+      setData(normalized);
+      setLoading(false);
+    }
+
+    loadTemplates();
+  }, [loadTemplates]);
+
+  useEffect(() => {
+    return subscribeToTemplatesCache((templates) => {
+      const normalized = normalizeTemplatesResponse(templates)
       dataRef.current = normalized
       setData(normalized)
       setLoading(false)
-    }
-  
-    loadTemplates()
-  }, [loadTemplates])
+    })
+  }, [])
 
   function setWorkoutDataOptimistic(
     updater: (current: MobileTemplatesResponse) => MobileTemplatesResponse
   ) {
     setData((current) => {
-      const safeCurrent = normalizeTemplatesResponse(current)
-      const next = normalizeTemplatesResponse(updater(safeCurrent))
-      setCachedTemplates(next)
-      return next
-    })
+      const safeCurrent = normalizeTemplatesResponse(current);
+      const next = normalizeTemplatesResponse(updater(safeCurrent));
+      setCachedTemplates(next);
+      return next;
+    });
   }
 
   function getLastPlanIndexForNextFromPlan(
     templateId: string,
     plan: MobileWorkoutTemplate[]
   ) {
-    const desiredIndex = plan.findIndex((template) => template.id === templateId)
+    const desiredIndex = plan.findIndex(
+      (template) => template.id === templateId
+    );
 
     if (desiredIndex === -1 || plan.length === 0) {
-      return currentData.plan.lastPlanIndex ?? -1
+      return currentData.plan.lastPlanIndex ?? -1;
     }
 
-    return desiredIndex === 0 ? plan.length - 1 : desiredIndex - 1
+    return desiredIndex === 0 ? plan.length - 1 : desiredIndex - 1;
   }
 
   function handleSetNextTemplate(template: MobileWorkoutTemplate) {
-    triggerLightHaptic()
-    markLocalMutation()
+    triggerLightHaptic();
+    markLocalMutation();
 
-    const previousData = data
+    const previousData = data;
 
     setWorkoutDataOptimistic((current) => {
-      const safeTemplates = current.templates
-      const safePlan = sortPlanTemplates(safeTemplates)
+      const safeTemplates = current.templates;
+      const safePlan = sortPlanTemplates(safeTemplates);
 
       const freshTemplate =
-        safeTemplates.find((item) => item.id === template.id) ?? template
+        safeTemplates.find((item) => item.id === template.id) ?? template;
 
       const optimisticLastPlanIndex = getLastPlanIndexForNextFromPlan(
         template.id,
         safePlan
-      )
+      );
 
       const optimisticNextPlanIndex = safePlan.findIndex(
         (item) => item.id === template.id
-      )
+      );
 
       return {
         ...current,
@@ -224,28 +246,28 @@ export default function WorkoutsScreen() {
           nextPlanIndex: optimisticNextPlanIndex,
           nextTemplate: freshTemplate,
         },
-      }
-    })
+      };
+    });
 
     setMobileNextTemplate(getToken, template.id).catch((err: unknown) => {
-      console.warn("Failed to set next workout", err)
+      console.warn("Failed to set next workout", err);
 
       if (previousData) {
-        const rollback = normalizeTemplatesResponse(previousData)
-        setData(rollback)
-        setCachedTemplates(rollback)
+        const rollback = normalizeTemplatesResponse(previousData);
+        setData(rollback);
+        setCachedTemplates(rollback);
       }
-    })
+    });
   }
 
   function handleAddToPlan(template: MobileWorkoutTemplate) {
-    triggerLightHaptic()
-    markLocalMutation()
+    triggerLightHaptic();
+    markLocalMutation();
 
-    const previousData = data
+    const previousData = data;
 
     setWorkoutDataOptimistic((current) => {
-      const nextPlanOrder = sortPlanTemplates(current.templates).length
+      const nextPlanOrder = sortPlanTemplates(current.templates).length;
 
       const nextTemplates = current.templates.map((item) =>
         item.id === template.id
@@ -255,18 +277,18 @@ export default function WorkoutsScreen() {
               plan_order: nextPlanOrder,
             }
           : item
-      )
+      );
 
-      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates);
       const currentNextStillInPlan =
         current.plan.nextTemplate &&
         nextPlanTemplates.some(
           (item) => item.id === current.plan.nextTemplate?.id
-        )
+        );
 
       const nextTemplateValue = currentNextStillInPlan
         ? current.plan.nextTemplate
-        : nextPlanTemplates[0] ?? null
+        : nextPlanTemplates[0] ?? null;
 
       return {
         ...current,
@@ -280,28 +302,28 @@ export default function WorkoutsScreen() {
               )
             : -1,
         },
-      }
-    })
+      };
+    });
 
     updateMobileTemplatePlanStatus(getToken, template.id, {
       in_plan: true,
       plan_order: planTemplates.length,
     }).catch((err: unknown) => {
-      console.warn("Failed to add to plan", err)
+      console.warn("Failed to add to plan", err);
 
       if (previousData) {
-        const rollback = normalizeTemplatesResponse(previousData)
-        setData(rollback)
-        setCachedTemplates(rollback)
+        const rollback = normalizeTemplatesResponse(previousData);
+        setData(rollback);
+        setCachedTemplates(rollback);
       }
-    })
+    });
   }
 
   function handleRemoveFromPlan(template: MobileWorkoutTemplate) {
-    triggerLightHaptic()
-    markLocalMutation()
+    triggerLightHaptic();
+    markLocalMutation();
 
-    const previousData = data
+    const previousData = data;
 
     setWorkoutDataOptimistic((current) => {
       const nextTemplates = current.templates.map((item) =>
@@ -312,13 +334,13 @@ export default function WorkoutsScreen() {
               plan_order: null,
             }
           : item
-      )
+      );
 
-      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
-      const removedWasNext = current.plan.nextTemplate?.id === template.id
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates);
+      const removedWasNext = current.plan.nextTemplate?.id === template.id;
       const replacementNext = removedWasNext
         ? nextPlanTemplates[0] ?? null
-        : current.plan.nextTemplate
+        : current.plan.nextTemplate;
 
       return {
         ...current,
@@ -332,61 +354,68 @@ export default function WorkoutsScreen() {
               )
             : -1,
         },
-      }
-    })
+      };
+    });
 
     updateMobileTemplatePlanStatus(getToken, template.id, {
       in_plan: false,
       plan_order: null,
     }).catch((err: unknown) => {
-      console.warn("Failed to remove from plan", err)
+      console.warn("Failed to remove from plan", err);
 
       if (previousData) {
-        const rollback = normalizeTemplatesResponse(previousData)
-        setData(rollback)
-        setCachedTemplates(rollback)
+        const rollback = normalizeTemplatesResponse(previousData);
+        setData(rollback);
+        setCachedTemplates(rollback);
       }
-    })
+    });
   }
 
-  function movePlanTemplate(template: MobileWorkoutTemplate, direction: -1 | 1) {
+  function movePlanTemplate(
+    template: MobileWorkoutTemplate,
+    direction: -1 | 1
+  ) {
     const currentIndex = planTemplates.findIndex(
       (item) => item.id === template.id
-    )
-    const nextIndex = currentIndex + direction
+    );
+    const nextIndex = currentIndex + direction;
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= planTemplates.length) {
-      return
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= planTemplates.length
+    ) {
+      return;
     }
 
-    triggerLightHaptic()
-    markLocalMutation()
+    triggerLightHaptic();
+    markLocalMutation();
 
-    const previousData = data
-    const reordered = [...planTemplates]
-    const [moved] = reordered.splice(currentIndex, 1)
-    reordered.splice(nextIndex, 0, moved)
+    const previousData = data;
+    const reordered = [...planTemplates];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(nextIndex, 0, moved);
 
     setWorkoutDataOptimistic((current) => {
       const nextTemplates = current.templates.map((item) => {
         const orderIndex = reordered.findIndex(
           (planItem) => planItem.id === item.id
-        )
+        );
 
-        if (orderIndex === -1) return item
+        if (orderIndex === -1) return item;
 
         return {
           ...item,
           plan_order: orderIndex,
-        }
-      })
+        };
+      });
 
-      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates);
       const nextTemplateValue = current.plan.nextTemplate
         ? nextPlanTemplates.find(
             (item) => item.id === current.plan.nextTemplate?.id
           ) ?? null
-        : null
+        : null;
 
       return {
         ...current,
@@ -400,8 +429,8 @@ export default function WorkoutsScreen() {
               )
             : -1,
         },
-      }
-    })
+      };
+    });
 
     Promise.all(
       reordered.map((item, index) =>
@@ -410,22 +439,22 @@ export default function WorkoutsScreen() {
         })
       )
     ).catch((err: unknown) => {
-      console.warn("Failed to reorder plan", err)
+      console.warn("Failed to reorder plan", err);
 
       if (previousData) {
-        const rollback = normalizeTemplatesResponse(previousData)
-        setData(rollback)
-        setCachedTemplates(rollback)
+        const rollback = normalizeTemplatesResponse(previousData);
+        setData(rollback);
+        setCachedTemplates(rollback);
       }
-    })
+    });
   }
 
   async function handleCreateTemplate() {
     try {
-      triggerMediumHaptic()
-      markLocalMutation()
+      triggerMediumHaptic();
+      markLocalMutation();
 
-      const template = await createMobileTemplate(getToken, "New Template")
+      const template = await createMobileTemplate(getToken, "New Template");
 
       setWorkoutDataOptimistic((current) => ({
         ...current,
@@ -438,68 +467,70 @@ export default function WorkoutsScreen() {
           },
           ...current.templates,
         ],
-      }))
+      }));
 
       router.push({
         pathname: "/template/[id]",
         params: {
           id: template.id,
         },
-      })
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create template")
+      setError(
+        err instanceof Error ? err.message : "Failed to create template"
+      );
     }
   }
 
   function handleStartWorkout(template: MobileWorkoutTemplate) {
-    if (startingTemplateId) return
+    if (startingTemplateId) return;
 
     const draftWorkout = buildDraftWorkoutFromTemplate({
       template,
       startedFromQueuedTemplate: template.id === nextTemplate?.id,
-    })
+    });
 
-    triggerMediumHaptic()
-    setError(null)
-    setSelectedTemplate(null)
-    setStartingTemplateId(template.id)
+    triggerMediumHaptic();
+    setError(null);
+    setSelectedTemplate(null);
+    setStartingTemplateId(template.id);
 
-    setCachedActiveWorkout(draftWorkout)
+    setCachedActiveWorkout(draftWorkout);
 
     router.push({
       pathname: "/workout/[id]",
       params: {
         id: draftWorkout.workout.id,
       },
-    })
+    });
 
     startMobileWorkout(getToken, template.id)
       .then((realWorkout) => {
-        setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
-        setCachedActiveWorkout(realWorkout)
+        setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout);
+        setCachedActiveWorkout(realWorkout);
       })
       .catch((err: unknown) => {
-        console.warn("Failed to save workout in background", err)
+        console.warn("Failed to save workout in background", err);
       })
       .finally(() => {
-        setStartingTemplateId(null)
-      })
+        setStartingTemplateId(null);
+      });
   }
 
   function openTemplateActions(template: MobileWorkoutTemplate) {
-    triggerLightHaptic()
-    setSelectedTemplate(template)
+    triggerLightHaptic();
+    setSelectedTemplate(template);
   }
 
   function editTemplate(template: MobileWorkoutTemplate) {
-    setSelectedTemplate(null)
+    setSelectedTemplate(null);
 
     router.push({
       pathname: "/template/[id]",
       params: {
         id: template.id,
       },
-    })
+    });
   }
 
   if (loading && !data) {
@@ -508,7 +539,7 @@ export default function WorkoutsScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading workouts...</Text>
       </SafeAreaView>
-    )
+    );
   }
 
   if (error && !data) {
@@ -523,7 +554,7 @@ export default function WorkoutsScreen() {
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    )
+    );
   }
 
   return (
@@ -576,7 +607,7 @@ export default function WorkoutsScreen() {
           <Pressable
             onPress={() => {
               if (nextTemplate) {
-                handleStartWorkout(nextTemplate)
+                handleStartWorkout(nextTemplate);
               }
             }}
             disabled={!nextTemplate || Boolean(startingTemplateId)}
@@ -660,32 +691,26 @@ export default function WorkoutsScreen() {
         onClose={() => setSelectedTemplate(null)}
         onStart={() => {
           if (selectedTemplate) {
-            handleStartWorkout(selectedTemplate)
+            handleStartWorkout(selectedTemplate);
           }
         }}
         onEdit={() => {
           if (selectedTemplate) {
-            editTemplate(selectedTemplate)
+            editTemplate(selectedTemplate);
           }
         }}
       />
     </SafeAreaView>
-  )
+  );
 }
 
-function SectionTitle({
-  title,
-  detail,
-}: {
-  title: string
-  detail: string
-}) {
+function SectionTitle({ title, detail }: { title: string; detail: string }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <Text style={styles.sectionDetail}>{detail}</Text>
     </View>
-  )
+  );
 }
 
 function TemplateCard({
@@ -701,17 +726,17 @@ function TemplateCard({
   onMoveDown,
   onRemove,
 }: {
-  template: MobileWorkoutTemplate
-  index: number
-  isNext: boolean
-  isStarting: boolean
-  isFirst: boolean
-  isLast: boolean
-  onPress: () => void
-  onSetNext: () => void
-  onMoveUp: () => void
-  onMoveDown: () => void
-  onRemove: () => void
+  template: MobileWorkoutTemplate;
+  index: number;
+  isNext: boolean;
+  isStarting: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onPress: () => void;
+  onSetNext: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
 }) {
   return (
     <FitCard
@@ -749,8 +774,8 @@ function TemplateCard({
           <View style={styles.cardActions}>
             <Pressable
               onPress={(event) => {
-                event.stopPropagation()
-                onSetNext()
+                event.stopPropagation();
+                onSetNext();
               }}
               style={styles.smallButton}
             >
@@ -759,8 +784,8 @@ function TemplateCard({
 
             <Pressable
               onPress={(event) => {
-                event.stopPropagation()
-                onMoveUp()
+                event.stopPropagation();
+                onMoveUp();
               }}
               disabled={isFirst}
               style={[styles.iconButton, isFirst && styles.disabledIconButton]}
@@ -770,19 +795,23 @@ function TemplateCard({
 
             <Pressable
               onPress={(event) => {
-                event.stopPropagation()
-                onMoveDown()
+                event.stopPropagation();
+                onMoveDown();
               }}
               disabled={isLast}
               style={[styles.iconButton, isLast && styles.disabledIconButton]}
             >
-              <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+              <Ionicons
+                name="chevron-down"
+                size={16}
+                color={colors.textMuted}
+              />
             </Pressable>
 
             <Pressable
               onPress={(event) => {
-                event.stopPropagation()
-                onRemove()
+                event.stopPropagation();
+                onRemove();
               }}
               style={styles.iconButton}
             >
@@ -792,7 +821,7 @@ function TemplateCard({
         )}
       </View>
     </FitCard>
-  )
+  );
 }
 
 function OtherTemplateCard({
@@ -800,9 +829,9 @@ function OtherTemplateCard({
   onPress,
   onAddToPlan,
 }: {
-  template: MobileWorkoutTemplate
-  onPress: () => void
-  onAddToPlan: () => void
+  template: MobileWorkoutTemplate;
+  onPress: () => void;
+  onAddToPlan: () => void;
 }) {
   return (
     <FitCard style={styles.templateCard} onPress={onPress}>
@@ -816,8 +845,8 @@ function OtherTemplateCard({
 
         <Pressable
           onPress={(event) => {
-            event.stopPropagation()
-            onAddToPlan()
+            event.stopPropagation();
+            onAddToPlan();
           }}
           style={styles.smallButton}
         >
@@ -827,7 +856,7 @@ function OtherTemplateCard({
         <Ionicons name="chevron-forward" size={21} color={colors.textMuted} />
       </View>
     </FitCard>
-  )
+  );
 }
 
 function EmptyCard({ text }: { text: string }) {
@@ -835,7 +864,7 @@ function EmptyCard({ text }: { text: string }) {
     <FitCard>
       <Text style={styles.emptyText}>{text}</Text>
     </FitCard>
-  )
+  );
 }
 
 function TemplateActionModal({
@@ -844,10 +873,10 @@ function TemplateActionModal({
   onStart,
   onEdit,
 }: {
-  template: MobileWorkoutTemplate | null
-  onClose: () => void
-  onStart: () => void
-  onEdit: () => void
+  template: MobileWorkoutTemplate | null;
+  onClose: () => void;
+  onStart: () => void;
+  onEdit: () => void;
 }) {
   return (
     <Modal
@@ -879,7 +908,7 @@ function TemplateActionModal({
         </Pressable>
       </Pressable>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1204,4 +1233,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-})
+});
