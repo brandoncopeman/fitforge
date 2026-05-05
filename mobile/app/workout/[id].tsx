@@ -1160,20 +1160,62 @@ export default function ActiveWorkoutScreen() {
   }
 
   function updateTemplateFromWorkout() {
-    const current = latestDataRef.current;
-    const templateId = current?.startedFromTemplateId;
-
+    const current = latestDataRef.current
+    const templateId = current?.startedFromTemplateId
+  
     if (!current || !templateId || templateUpdateStatus === "saving") {
-      return;
+      return
     }
-
-    triggerMediumHaptic();
-
-    // UI updates immediately. The API save happens in the background.
-    setTemplateUpdateStatus("saved");
-
-    const exercisesForTemplate = buildTemplateOverwriteExercises(current);
-
+  
+    triggerMediumHaptic()
+    setTemplateUpdateStatus("saved")
+  
+    const exercisesForTemplate = buildTemplateOverwriteExercises(current)
+    const cachedTemplates = getCachedTemplates()
+  
+    // Update mobile cache immediately so starting the template again uses the
+    // latest active workout values even before the server responds.
+    if (cachedTemplates) {
+      const nextTemplates = cachedTemplates.templates.map((template) => {
+        if (template.id !== templateId) return template
+  
+        return {
+          ...template,
+          exercise_count: exercisesForTemplate.length,
+          exercises: exercisesForTemplate.map((exercise, index) => ({
+            id: `local-template-exercise-${templateId}-${index}`,
+            template_id: templateId,
+            exercise_name: exercise.exercise_name,
+            muscle_group: exercise.muscle_group,
+            order_index: exercise.order_index,
+            default_sets: exercise.default_sets,
+            default_reps: exercise.default_reps,
+            default_weight_kg: exercise.default_weight_kg,
+            default_duration_minutes: exercise.default_duration_minutes,
+            default_speed: exercise.default_speed,
+            default_distance: exercise.default_distance,
+            default_incline: exercise.default_incline,
+          })),
+          lastSetsByExercise: {},
+        }
+      })
+  
+      const nextTemplate =
+        cachedTemplates.plan.nextTemplate?.id === templateId
+          ? nextTemplates.find((template) => template.id === templateId) ??
+            cachedTemplates.plan.nextTemplate
+          : cachedTemplates.plan.nextTemplate
+  
+      setCachedTemplates({
+        ...cachedTemplates,
+        templates: nextTemplates,
+        plan: {
+          ...cachedTemplates.plan,
+          nextTemplate,
+        },
+      })
+    }
+  
     apiRequest<MobileWorkoutTemplate>(
       `/api/mobile/templates/${templateId}/overwrite-from-workout`,
       {
@@ -1184,47 +1226,40 @@ export default function ActiveWorkoutScreen() {
       }
     )
       .then((updatedTemplate) => {
-        const cachedTemplates = getCachedTemplates();
-
-        if (!cachedTemplates) return;
-
-        const nextTemplates = cachedTemplates.templates.map((template) =>
+        const latestCachedTemplates = getCachedTemplates()
+  
+        if (!latestCachedTemplates) return
+  
+        const nextTemplates = latestCachedTemplates.templates.map((template) =>
           template.id === updatedTemplate.id
             ? {
                 ...template,
                 ...updatedTemplate,
-                lastSetsByExercise: template.lastSetsByExercise ?? {},
+                lastSetsByExercise: updatedTemplate.lastSetsByExercise ?? {},
               }
             : template
-        );
-
+        )
+  
         const nextTemplate =
-          cachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
-            ? {
-                ...cachedTemplates.plan.nextTemplate,
-                ...updatedTemplate,
-                lastSetsByExercise:
-                  cachedTemplates.plan.nextTemplate.lastSetsByExercise ?? {},
-              }
-            : cachedTemplates.plan.nextTemplate;
-
+          latestCachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
+            ? nextTemplates.find((template) => template.id === updatedTemplate.id) ??
+              latestCachedTemplates.plan.nextTemplate
+            : latestCachedTemplates.plan.nextTemplate
+  
         setCachedTemplates({
-          ...cachedTemplates,
+          ...latestCachedTemplates,
           templates: nextTemplates,
           plan: {
-            ...cachedTemplates.plan,
+            ...latestCachedTemplates.plan,
             nextTemplate,
           },
-        });
+        })
       })
       .catch((err: unknown) => {
-        console.warn("Failed to update template from workout", err);
-
-        // Do not show a blocking error. Just allow retry if user is still on recap.
-        setTemplateUpdateStatus("idle");
-      });
+        console.warn("Failed to update template from workout", err)
+        setTemplateUpdateStatus("idle")
+      })
   }
-
   function goHomeAfterWorkout() {
     setShowRecap(false);
 

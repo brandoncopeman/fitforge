@@ -59,22 +59,26 @@ export async function GET() {
   const templateIds = (templates as TemplateRow[]).map((template) => template.id)
 
   const templateExercises =
-    templateIds.length > 0
-      ? await sql`
-          SELECT
-            id,
-            template_id,
-            exercise_name,
-            muscle_group,
-            order_index,
-            default_sets,
-            default_reps,
-            default_weight_kg
-          FROM template_exercises
-          WHERE template_id = ANY(${templateIds})
-          ORDER BY order_index ASC
-        `
-      : []
+  templateIds.length > 0
+    ? await sql`
+        SELECT
+          id,
+          template_id,
+          exercise_name,
+          muscle_group,
+          order_index,
+          default_sets,
+          default_reps,
+          default_weight_kg,
+          default_duration_minutes,
+          default_speed,
+          default_distance,
+          default_incline
+        FROM template_exercises
+        WHERE template_id = ANY(${templateIds})
+        ORDER BY order_index ASC
+      `
+    : []
 
   const exerciseNames = Array.from(
     new Set(
