@@ -30,19 +30,11 @@ import {
   updateMobileTemplatePlanStatus,
 } from "@/lib/api"
 import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
+import { setCachedTemplates } from "@/lib/templatesCache"
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
 } from "@/types/workouts"
-
-const EMPTY_DATA: MobileTemplatesResponse = {
-  templates: [],
-  plan: {
-    lastPlanIndex: -1,
-    nextPlanIndex: -1,
-    nextTemplate: null,
-  },
-}
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
@@ -99,9 +91,7 @@ export default function WorkoutsScreen() {
   const latestLoadStartedAtRef = useRef(0)
 
   const currentData = useMemo(() => normalizeTemplatesResponse(data), [data])
-
   const templates = useMemo(() => currentData.templates, [currentData.templates])
-
   const planTemplates = useMemo(() => sortPlanTemplates(templates), [templates])
 
   const otherTemplates = useMemo(
@@ -130,6 +120,9 @@ export default function WorkoutsScreen() {
         setError(null)
 
         const templatesResponse = await getMobileTemplates(getToken)
+        const normalized = normalizeTemplatesResponse(templatesResponse)
+
+        setCachedTemplates(normalized)
 
         const localChangedAfterRequest =
           localMutationAtRef.current > requestStartedAt
@@ -141,7 +134,7 @@ export default function WorkoutsScreen() {
           return
         }
 
-        setData(normalizeTemplatesResponse(templatesResponse))
+        setData(normalized)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load workouts")
       } finally {
@@ -155,6 +148,17 @@ export default function WorkoutsScreen() {
   useEffect(() => {
     loadTemplates()
   }, [loadTemplates])
+
+  function setWorkoutDataOptimistic(
+    updater: (current: MobileTemplatesResponse) => MobileTemplatesResponse
+  ) {
+    setData((current) => {
+      const safeCurrent = normalizeTemplatesResponse(current)
+      const next = normalizeTemplatesResponse(updater(safeCurrent))
+      setCachedTemplates(next)
+      return next
+    })
+  }
 
   function getLastPlanIndexForNextFromPlan(
     templateId: string,
@@ -175,9 +179,8 @@ export default function WorkoutsScreen() {
 
     const previousData = data
 
-    setData((current) => {
-      const safeCurrent = normalizeTemplatesResponse(current)
-      const safeTemplates = safeCurrent.templates
+    setWorkoutDataOptimistic((current) => {
+      const safeTemplates = current.templates
       const safePlan = sortPlanTemplates(safeTemplates)
 
       const freshTemplate =
@@ -193,7 +196,7 @@ export default function WorkoutsScreen() {
       )
 
       return {
-        ...safeCurrent,
+        ...current,
         plan: {
           lastPlanIndex: optimisticLastPlanIndex,
           nextPlanIndex: optimisticNextPlanIndex,
@@ -206,7 +209,9 @@ export default function WorkoutsScreen() {
       console.warn("Failed to set next workout", err)
 
       if (previousData) {
-        setData(previousData)
+        const rollback = normalizeTemplatesResponse(previousData)
+        setData(rollback)
+        setCachedTemplates(rollback)
       }
     })
   }
@@ -217,12 +222,10 @@ export default function WorkoutsScreen() {
 
     const previousData = data
 
-    setData((current) => {
-      const safeCurrent = normalizeTemplatesResponse(current)
-      const safeTemplates = safeCurrent.templates
-      const nextPlanOrder = sortPlanTemplates(safeTemplates).length
+    setWorkoutDataOptimistic((current) => {
+      const nextPlanOrder = sortPlanTemplates(current.templates).length
 
-      const nextTemplates = safeTemplates.map((item) =>
+      const nextTemplates = current.templates.map((item) =>
         item.id === template.id
           ? {
               ...item,
@@ -234,20 +237,20 @@ export default function WorkoutsScreen() {
 
       const nextPlanTemplates = sortPlanTemplates(nextTemplates)
       const currentNextStillInPlan =
-        safeCurrent.plan.nextTemplate &&
+        current.plan.nextTemplate &&
         nextPlanTemplates.some(
-          (item) => item.id === safeCurrent.plan.nextTemplate?.id
+          (item) => item.id === current.plan.nextTemplate?.id
         )
 
       const nextTemplateValue = currentNextStillInPlan
-        ? safeCurrent.plan.nextTemplate
+        ? current.plan.nextTemplate
         : nextPlanTemplates[0] ?? null
 
       return {
-        ...safeCurrent,
+        ...current,
         templates: nextTemplates,
         plan: {
-          ...safeCurrent.plan,
+          ...current.plan,
           nextTemplate: nextTemplateValue,
           nextPlanIndex: nextTemplateValue
             ? nextPlanTemplates.findIndex(
@@ -265,7 +268,9 @@ export default function WorkoutsScreen() {
       console.warn("Failed to add to plan", err)
 
       if (previousData) {
-        setData(previousData)
+        const rollback = normalizeTemplatesResponse(previousData)
+        setData(rollback)
+        setCachedTemplates(rollback)
       }
     })
   }
@@ -276,10 +281,8 @@ export default function WorkoutsScreen() {
 
     const previousData = data
 
-    setData((current) => {
-      const safeCurrent = normalizeTemplatesResponse(current)
-
-      const nextTemplates = safeCurrent.templates.map((item) =>
+    setWorkoutDataOptimistic((current) => {
+      const nextTemplates = current.templates.map((item) =>
         item.id === template.id
           ? {
               ...item,
@@ -290,16 +293,16 @@ export default function WorkoutsScreen() {
       )
 
       const nextPlanTemplates = sortPlanTemplates(nextTemplates)
-      const removedWasNext = safeCurrent.plan.nextTemplate?.id === template.id
+      const removedWasNext = current.plan.nextTemplate?.id === template.id
       const replacementNext = removedWasNext
         ? nextPlanTemplates[0] ?? null
-        : safeCurrent.plan.nextTemplate
+        : current.plan.nextTemplate
 
       return {
-        ...safeCurrent,
+        ...current,
         templates: nextTemplates,
         plan: {
-          ...safeCurrent.plan,
+          ...current.plan,
           nextTemplate: replacementNext,
           nextPlanIndex: replacementNext
             ? nextPlanTemplates.findIndex(
@@ -317,7 +320,9 @@ export default function WorkoutsScreen() {
       console.warn("Failed to remove from plan", err)
 
       if (previousData) {
-        setData(previousData)
+        const rollback = normalizeTemplatesResponse(previousData)
+        setData(rollback)
+        setCachedTemplates(rollback)
       }
     })
   }
@@ -340,10 +345,8 @@ export default function WorkoutsScreen() {
     const [moved] = reordered.splice(currentIndex, 1)
     reordered.splice(nextIndex, 0, moved)
 
-    setData((current) => {
-      const safeCurrent = normalizeTemplatesResponse(current)
-
-      const nextTemplates = safeCurrent.templates.map((item) => {
+    setWorkoutDataOptimistic((current) => {
+      const nextTemplates = current.templates.map((item) => {
         const orderIndex = reordered.findIndex(
           (planItem) => planItem.id === item.id
         )
@@ -357,17 +360,17 @@ export default function WorkoutsScreen() {
       })
 
       const nextPlanTemplates = sortPlanTemplates(nextTemplates)
-      const nextTemplateValue = safeCurrent.plan.nextTemplate
+      const nextTemplateValue = current.plan.nextTemplate
         ? nextPlanTemplates.find(
-            (item) => item.id === safeCurrent.plan.nextTemplate?.id
+            (item) => item.id === current.plan.nextTemplate?.id
           ) ?? null
         : null
 
       return {
-        ...safeCurrent,
+        ...current,
         templates: nextTemplates,
         plan: {
-          ...safeCurrent.plan,
+          ...current.plan,
           nextTemplate: nextTemplateValue,
           nextPlanIndex: nextTemplateValue
             ? nextPlanTemplates.findIndex(
@@ -388,7 +391,9 @@ export default function WorkoutsScreen() {
       console.warn("Failed to reorder plan", err)
 
       if (previousData) {
-        setData(previousData)
+        const rollback = normalizeTemplatesResponse(previousData)
+        setData(rollback)
+        setCachedTemplates(rollback)
       }
     })
   }
@@ -400,22 +405,18 @@ export default function WorkoutsScreen() {
 
       const template = await createMobileTemplate(getToken, "New Template")
 
-      setData((current) => {
-        const safeCurrent = normalizeTemplatesResponse(current)
-
-        return {
-          ...safeCurrent,
-          templates: [
-            {
-              ...template,
-              exercise_count: template.exercise_count ?? 0,
-              exercises: template.exercises ?? [],
-              lastSetsByExercise: template.lastSetsByExercise ?? {},
-            },
-            ...safeCurrent.templates,
-          ],
-        }
-      })
+      setWorkoutDataOptimistic((current) => ({
+        ...current,
+        templates: [
+          {
+            ...template,
+            exercise_count: template.exercise_count ?? 0,
+            exercises: template.exercises ?? [],
+            lastSetsByExercise: template.lastSetsByExercise ?? {},
+          },
+          ...current.templates,
+        ],
+      }))
 
       router.push({
         pathname: "/template/[id]",

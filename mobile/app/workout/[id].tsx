@@ -1,8 +1,8 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/clerk-expo";
-import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons"
+import { useAuth } from "@clerk/clerk-expo"
+import * as Haptics from "expo-haptics"
+import { router, useLocalSearchParams } from "expo-router"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,78 +15,82 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 
-import FitCard from "@/components/FitCard";
-import { colors, radius, spacing } from "@/constants/fitforgeTheme";
+import FitCard from "@/components/FitCard"
+import { colors, radius, spacing } from "@/constants/fitforgeTheme"
 import {
   getCachedActiveWorkout,
   setCachedActiveWorkout,
   subscribeToCachedActiveWorkout,
-} from "@/lib/activeWorkoutCache";
-import { getMobileWorkout } from "@/lib/api";
+} from "@/lib/activeWorkoutCache"
+import { getMobileWorkout } from "@/lib/api"
+import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache"
 import {
   MobileActiveWorkoutResponse,
   MobileExerciseSet,
   MobileWorkoutExercise,
-} from "@/types/activeWorkout";
+} from "@/types/activeWorkout"
+import { MobileWorkoutTemplate } from "@/types/workouts"
 
-const API_BASE_URL = "https://myfitforge.vercel.app";
+const API_BASE_URL = "https://myfitforge.vercel.app"
 
 type ExerciseSearchResult = {
-  id: string;
-  name: string;
-  bodyPart?: string;
-  target?: string;
-  muscle_group?: string;
-};
+  id: string
+  name: string
+  bodyPart?: string
+  target?: string
+  muscle_group?: string
+}
 
 type RecapData = {
-  exercises: number;
-  sets: number;
-  volume: number;
-  duration: number;
-};
+  exercises: number
+  sets: number
+  volume: number
+  duration: number
+}
+
 type EditingSetState = {
-  exerciseId: string;
-  exerciseName: string;
-  setId: string;
-  setNumber: number;
-  reps: number | "";
-  weight_kg: number | string | "";
-} | null;
-type SaveTimerMap = Record<string, ReturnType<typeof setTimeout>>;
+  exerciseId: string
+  exerciseName: string
+  setId: string
+  setNumber: number
+  reps: number | ""
+  weight_kg: number | string | ""
+} | null
+
+type SaveTimerMap = Record<string, ReturnType<typeof setTimeout>>
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
   }
 }
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
   }
 }
 
 function makeTempId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60)
     .toString()
-    .padStart(2, "0");
-  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    .padStart(2, "0")
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0")
 
-  return `${minutes}:${seconds}`;
+  return `${minutes}:${seconds}`
 }
 
 function getSetNumberValue(value: number | string | "") {
-  if (value === "") return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (value === "") return 0
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function calculateVolume(exercises: MobileWorkoutExercise[]) {
@@ -97,15 +101,15 @@ function calculateVolume(exercises: MobileWorkoutExercise[]) {
         return (
           setTotal +
           getSetNumberValue(set.weight_kg) * getSetNumberValue(set.reps)
-        );
+        )
       }, 0)
-    );
-  }, 0);
+    )
+  }, 0)
 }
 
 function getReadableError(err: unknown) {
-  if (err instanceof Error) return err.message;
-  return "Something went wrong";
+  if (err instanceof Error) return err.message
+  return "Something went wrong"
 }
 
 function cloneWorkout(workout: MobileActiveWorkoutResponse) {
@@ -121,7 +125,7 @@ function cloneWorkout(workout: MobileActiveWorkoutResponse) {
         ? exercise.last_session.map((set) => ({ ...set }))
         : undefined,
     })),
-  };
+  }
 }
 
 function mergeRealWorkoutWithLocalState({
@@ -158,14 +162,10 @@ function mergeRealWorkoutWithLocalState({
 
       return {
         ...localExercise,
-
-        // Only swap identity fields.
-        // Do NOT replace name, muscle group, sets, reps, weights, completed state, or last_session.
         id: matchingRealExercise.id,
         workout_id: real.workout.id,
         exercise_external_id: matchingRealExercise.exercise_external_id,
         isTemp: false,
-
         sets: localExercise.sets.map((localSet, localSetIndex) => {
           const matchingRealSet =
             realSetsByNumber.find(
@@ -181,8 +181,6 @@ function mergeRealWorkoutWithLocalState({
 
           return {
             ...localSet,
-
-            // Only swap IDs. Keep user-edited values.
             id: matchingRealSet.id,
             workout_exercise_id: matchingRealExercise.id,
             isTemp: false,
@@ -197,59 +195,60 @@ function mergeRealWorkoutWithLocalState({
 }
 
 export default function ActiveWorkoutScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { getToken } = useAuth();
+  const { id } = useLocalSearchParams<{ id: string }>()
+  const { getToken } = useAuth()
 
   const [data, setData] = useState<MobileActiveWorkoutResponse | null>(() => {
-    if (!id) return null;
-    return getCachedActiveWorkout(id);
-  });
+    if (!id) return null
+    return getCachedActiveWorkout(id)
+  })
 
-  const [workoutName, setWorkoutName] = useState("");
-  const [loading, setLoading] = useState(!data);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [workoutName, setWorkoutName] = useState("")
+  const [loading, setLoading] = useState(!data)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const [elapsed, setElapsed] = useState(0);
-  const [restDuration, setRestDuration] = useState(60);
-  const [restRemaining, setRestRemaining] = useState<number | null>(null);
-  const [showRestPicker, setShowRestPicker] = useState(false);
+  const [elapsed, setElapsed] = useState(0)
+  const [restDuration, setRestDuration] = useState(60)
+  const [restRemaining, setRestRemaining] = useState<number | null>(null)
+  const [showRestPicker, setShowRestPicker] = useState(false)
 
-  const [showExerciseSearch, setShowExerciseSearch] = useState(false);
-  const [exerciseQuery, setExerciseQuery] = useState("");
-  const [exerciseResults, setExerciseResults] = useState<
-    ExerciseSearchResult[]
-  >([]);
-  const [searchingExercises, setSearchingExercises] = useState(false);
+  const [showExerciseSearch, setShowExerciseSearch] = useState(false)
+  const [exerciseQuery, setExerciseQuery] = useState("")
+  const [exerciseResults, setExerciseResults] = useState<ExerciseSearchResult[]>([])
+  const [searchingExercises, setSearchingExercises] = useState(false)
 
-  const [showRecap, setShowRecap] = useState(false);
-  const [editingSet, setEditingSet] = useState<EditingSetState>(null);
-  const [recapData, setRecapData] = useState<RecapData | null>(null);
-  const [finishing, setFinishing] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [showRecap, setShowRecap] = useState(false)
+  const [editingSet, setEditingSet] = useState<EditingSetState>(null)
+  const [recapData, setRecapData] = useState<RecapData | null>(null)
+  const [templateUpdateStatus, setTemplateUpdateStatus] = useState<
+    "idle" | "saving" | "saved"
+  >("idle")
+  const [finishing, setFinishing] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
-  const startTimeRef = useRef(Date.now());
-  const saveTimersRef = useRef<SaveTimerMap>({});
-  const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestDataRef = useRef<MobileActiveWorkoutResponse | null>(data);
+  const startTimeRef = useRef(Date.now())
+  const saveTimersRef = useRef<SaveTimerMap>({})
+  const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestDataRef = useRef<MobileActiveWorkoutResponse | null>(data)
 
   useEffect(() => {
-    latestDataRef.current = data;
-  }, [data]);
+    latestDataRef.current = data
+  }, [data])
 
   useEffect(() => {
     if (data?.workout.name) {
-      setWorkoutName(data.workout.name);
+      setWorkoutName(data.workout.name)
     }
-  }, [data?.workout.name]);
+  }, [data?.workout.name])
 
   const apiRequest = useCallback(
     async <T,>(path: string, options?: RequestInit): Promise<T> => {
-      const token = await getToken();
+      const token = await getToken()
 
       if (!token) {
-        throw new Error("No Clerk session token found. Please sign in again.");
+        throw new Error("No Clerk session token found. Please sign in again.")
       }
 
       const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -259,24 +258,24 @@ export default function ActiveWorkoutScreen() {
           "Content-Type": "application/json",
           ...(options?.headers ?? {}),
         },
-      });
+      })
 
-      const text = await res.text().catch(() => "");
+      const text = await res.text().catch(() => "")
 
       if (!res.ok) {
-        throw new Error(text || `Request failed: ${res.status}`);
+        throw new Error(text || `Request failed: ${res.status}`)
       }
 
-      if (!text) return {} as T;
+      if (!text) return {} as T
 
       try {
-        return JSON.parse(text) as T;
+        return JSON.parse(text) as T
       } catch {
-        return text as T;
+        return text as T
       }
     },
     [getToken]
-  );
+  )
 
   const saveSetNow = useCallback(
     async (set: MobileExerciseSet) => {
@@ -285,7 +284,7 @@ export default function ActiveWorkoutScreen() {
         set.id.startsWith("draft") ||
         set.id.startsWith("temp")
       ) {
-        return;
+        return
       }
 
       await apiRequest(`/api/exercise-sets/${set.id}`, {
@@ -294,19 +293,17 @@ export default function ActiveWorkoutScreen() {
           reps: getSetNumberValue(set.reps),
           weight_kg: getSetNumberValue(set.weight_kg),
         }),
-      });
+      })
     },
     [apiRequest]
-  );
+  )
 
   const flushSaves = useCallback(async () => {
-    Object.values(saveTimersRef.current).forEach((timer) =>
-      clearTimeout(timer)
-    );
-    saveTimersRef.current = {};
+    Object.values(saveTimersRef.current).forEach((timer) => clearTimeout(timer))
+    saveTimersRef.current = {}
 
-    const current = latestDataRef.current;
-    if (!current) return;
+    const current = latestDataRef.current
+    if (!current) return
 
     const savePromises = current.exercises.flatMap((exercise) =>
       exercise.sets
@@ -318,178 +315,174 @@ export default function ActiveWorkoutScreen() {
         )
         .map((set) =>
           saveSetNow(set).catch((err: unknown) => {
-            console.warn("Failed to flush set save", err);
+            console.warn("Failed to flush set save", err)
           })
         )
-    );
+    )
 
-    await Promise.all(savePromises);
-  }, [saveSetNow]);
+    await Promise.all(savePromises)
+  }, [saveSetNow])
 
   const loadWorkout = useCallback(
     async (isRefresh = false) => {
-      if (!id) return;
+      if (!id) return
 
       if (id.startsWith("draft-workout")) {
-        setLoading(false);
-        return;
+        setLoading(false)
+        return
       }
 
       try {
         if (isRefresh) {
-          setRefreshing(true);
+          setRefreshing(true)
         } else {
-          setLoading(true);
+          setLoading(true)
         }
 
-        setError(null);
+        setError(null)
 
-        const workout = await getMobileWorkout(getToken, id);
-        setData(workout);
-        setCachedActiveWorkout(workout);
+        const workout = await getMobileWorkout(getToken, id)
+        setData(workout)
+        setCachedActiveWorkout(workout)
       } catch (err) {
-        setError(getReadableError(err));
+        setError(getReadableError(err))
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        setLoading(false)
+        setRefreshing(false)
       }
     },
     [getToken, id]
-  );
+  )
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) return
 
     return subscribeToCachedActiveWorkout(id, (workout) => {
       setData((current) => {
-        if (!current) return workout;
+        if (!current) return workout
 
         const merged = mergeRealWorkoutWithLocalState({
           local: current,
           real: workout,
-        });
+        })
 
-        latestDataRef.current = merged;
+        latestDataRef.current = merged
 
         setTimeout(() => {
           flushSaves().catch((err: unknown) => {
-            console.warn("Failed to flush after real workout arrived", err);
-          });
-        }, 0);
+            console.warn("Failed to flush after real workout arrived", err)
+          })
+        }, 0)
 
-        return merged;
-      });
+        return merged
+      })
 
-      setLoading(false);
-      setError(null);
-    });
-  }, [flushSaves, id]);
+      setLoading(false)
+      setError(null)
+    })
+  }, [flushSaves, id])
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) return
 
     if (id.startsWith("draft-workout")) {
-      setLoading(false);
-      return;
+      setLoading(false)
+      return
     }
 
-    loadWorkout(false);
+    loadWorkout(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id])
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
-    }, 1000);
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000))
+    }, 1000)
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     return () => {
       if (restTimerRef.current) {
-        clearInterval(restTimerRef.current);
+        clearInterval(restTimerRef.current)
       }
 
       if (searchTimerRef.current) {
-        clearTimeout(searchTimerRef.current);
+        clearTimeout(searchTimerRef.current)
       }
 
-      Object.values(saveTimersRef.current).forEach((timer) =>
-        clearTimeout(timer)
-      );
-    };
-  }, []);
+      Object.values(saveTimersRef.current).forEach((timer) => clearTimeout(timer))
+    }
+  }, [])
 
   const exercises = useMemo(() => {
-    return Array.isArray(data?.exercises) ? data.exercises : [];
-  }, [data?.exercises]);
+    return Array.isArray(data?.exercises) ? data.exercises : []
+  }, [data?.exercises])
 
-  const totalVolume = useMemo(() => calculateVolume(exercises), [exercises]);
+  const totalVolume = useMemo(() => calculateVolume(exercises), [exercises])
 
   const totalSets = useMemo(() => {
-    return exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
-  }, [exercises]);
+    return exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)
+  }, [exercises])
 
   const completedSets = useMemo(() => {
     return exercises.reduce(
       (sum, exercise) =>
         sum + exercise.sets.filter((set) => set.completed).length,
       0
-    );
-  }, [exercises]);
+    )
+  }, [exercises])
 
   function updateWorkoutState(
-    updater: (
-      current: MobileActiveWorkoutResponse
-    ) => MobileActiveWorkoutResponse
+    updater: (current: MobileActiveWorkoutResponse) => MobileActiveWorkoutResponse
   ) {
     setData((current) => {
-      if (!current) return current;
+      if (!current) return current
 
-      const next = updater(cloneWorkout(current));
-      latestDataRef.current = next;
+      const next = updater(cloneWorkout(current))
+      latestDataRef.current = next
 
       if (id) {
-        setCachedActiveWorkout(next);
+        setCachedActiveWorkout(next)
       }
 
-      return next;
-    });
+      return next
+    })
   }
 
   function startRestTimer(seconds = restDuration) {
-    setRestRemaining(seconds);
+    setRestRemaining(seconds)
 
     if (restTimerRef.current) {
-      clearInterval(restTimerRef.current);
+      clearInterval(restTimerRef.current)
     }
 
     restTimerRef.current = setInterval(() => {
       setRestRemaining((current) => {
         if (current === null || current <= 1) {
           if (restTimerRef.current) {
-            clearInterval(restTimerRef.current);
+            clearInterval(restTimerRef.current)
           }
 
-          return null;
+          return null
         }
 
-        return current - 1;
-      });
-    }, 1000);
+        return current - 1
+      })
+    }, 1000)
   }
 
   function cancelRestTimer() {
     if (restTimerRef.current) {
-      clearInterval(restTimerRef.current);
+      clearInterval(restTimerRef.current)
     }
 
-    setRestRemaining(null);
+    setRestRemaining(null)
   }
 
   function toggleSetComplete(exerciseId: string, setId: string) {
-    triggerMediumHaptic();
+    triggerMediumHaptic()
 
     updateWorkoutState((current) => ({
       ...current,
@@ -508,19 +501,19 @@ export default function ActiveWorkoutScreen() {
             }
           : exercise
       ),
-    }));
+    }))
 
-    startRestTimer();
+    startRestTimer()
   }
 
   function openSetEditor({
     exercise,
     set,
   }: {
-    exercise: MobileWorkoutExercise;
-    set: MobileExerciseSet;
+    exercise: MobileWorkoutExercise
+    set: MobileExerciseSet
   }) {
-    triggerLightHaptic();
+    triggerLightHaptic()
 
     setEditingSet({
       exerciseId: exercise.id,
@@ -529,74 +522,71 @@ export default function ActiveWorkoutScreen() {
       setNumber: set.set_number,
       reps: set.reps,
       weight_kg: set.weight_kg,
-    });
+    })
   }
 
   function closeSetEditor() {
-    setEditingSet(null);
+    setEditingSet(null)
   }
 
   function updateEditingSetValue(field: "reps" | "weight_kg", value: string) {
     setEditingSet((current) => {
-      if (!current) return current;
+      if (!current) return current
 
-      const parsedValue = value === "" ? "" : Number(value);
+      const parsedValue = value === "" ? "" : Number(value)
 
       updateSetValue({
         exerciseId: current.exerciseId,
         setId: current.setId,
         field,
         value,
-      });
+      })
 
       return {
         ...current,
         [field]: parsedValue,
-      };
-    });
+      }
+    })
   }
 
-  function adjustEditingSetValue(
-    field: "reps" | "weight_kg",
-    direction: -1 | 1
-  ) {
+  function adjustEditingSetValue(field: "reps" | "weight_kg", direction: -1 | 1) {
     setEditingSet((current) => {
-      if (!current) return current;
+      if (!current) return current
 
-      const currentValue = getSetNumberValue(current[field]);
-      const step = field === "weight_kg" ? 2.5 : 1;
-      const nextValue = Math.max(0, currentValue + direction * step);
+      const currentValue = getSetNumberValue(current[field])
+      const step = field === "weight_kg" ? 2.5 : 1
+      const nextValue = Math.max(0, currentValue + direction * step)
 
-      triggerLightHaptic();
+      triggerLightHaptic()
 
       updateSetValue({
         exerciseId: current.exerciseId,
         setId: current.setId,
         field,
         value: String(nextValue),
-      });
+      })
 
       return {
         ...current,
         [field]: nextValue,
-      };
-    });
+      }
+    })
   }
 
   function queueSetSave(set: MobileExerciseSet) {
-    const saveKey = set.id;
+    const saveKey = set.id
 
     if (saveTimersRef.current[saveKey]) {
-      clearTimeout(saveTimersRef.current[saveKey]);
+      clearTimeout(saveTimersRef.current[saveKey])
     }
 
     saveTimersRef.current[saveKey] = setTimeout(() => {
       saveSetNow(set).catch((err: unknown) => {
-        console.warn("Failed to save set", err);
-      });
+        console.warn("Failed to save set", err)
+      })
 
-      delete saveTimersRef.current[saveKey];
-    }, 800);
+      delete saveTimersRef.current[saveKey]
+    }, 800)
   }
 
   function updateSetValue({
@@ -605,12 +595,12 @@ export default function ActiveWorkoutScreen() {
     field,
     value,
   }: {
-    exerciseId: string;
-    setId: string;
-    field: "reps" | "weight_kg";
-    value: string;
+    exerciseId: string
+    setId: string
+    field: "reps" | "weight_kg"
+    value: string
   }) {
-    let updatedSet: MobileExerciseSet | null = null;
+    let updatedSet: MobileExerciseSet | null = null
 
     updateWorkoutState((current) => ({
       ...current,
@@ -619,36 +609,34 @@ export default function ActiveWorkoutScreen() {
           ? {
               ...exercise,
               sets: exercise.sets.map((set) => {
-                if (set.id !== setId) return set;
+                if (set.id !== setId) return set
 
                 updatedSet = {
                   ...set,
                   [field]: value === "" ? "" : Number(value),
-                };
+                }
 
-                return updatedSet;
+                return updatedSet
               }),
             }
           : exercise
       ),
-    }));
+    }))
 
     if (updatedSet) {
-      queueSetSave(updatedSet);
+      queueSetSave(updatedSet)
     }
   }
 
   function addSet(exerciseId: string) {
-    triggerLightHaptic();
+    triggerLightHaptic()
 
-    const targetExercise = exercises.find(
-      (exercise) => exercise.id === exerciseId
-    );
-    if (!targetExercise) return;
+    const targetExercise = exercises.find((exercise) => exercise.id === exerciseId)
+    if (!targetExercise) return
 
-    const previousSet = targetExercise.sets[targetExercise.sets.length - 1];
-    const newSetNumber = targetExercise.sets.length + 1;
-    const tempSetId = makeTempId("temp-set");
+    const previousSet = targetExercise.sets[targetExercise.sets.length - 1]
+    const newSetNumber = targetExercise.sets.length + 1
+    const tempSetId = makeTempId("temp-set")
 
     const optimisticSet: MobileExerciseSet = {
       id: tempSetId,
@@ -658,7 +646,7 @@ export default function ActiveWorkoutScreen() {
       weight_kg: previousSet?.weight_kg ?? 0,
       completed: false,
       isTemp: true,
-    };
+    }
 
     updateWorkoutState((current) => ({
       ...current,
@@ -670,10 +658,10 @@ export default function ActiveWorkoutScreen() {
             }
           : exercise
       ),
-    }));
+    }))
 
     if (targetExercise.isTemp || exerciseId.startsWith("draft")) {
-      return;
+      return
     }
 
     apiRequest<MobileExerciseSet>("/api/exercise-sets", {
@@ -704,19 +692,19 @@ export default function ActiveWorkoutScreen() {
                 }
               : exercise
           ),
-        }));
+        }))
       })
       .catch((err: unknown) => {
-        console.warn("Failed to add set", err);
-      });
+        console.warn("Failed to add set", err)
+      })
   }
 
   function removeSet(exerciseId: string, setId: string) {
-    triggerLightHaptic();
+    triggerLightHaptic()
 
     const targetSet = exercises
       .find((exercise) => exercise.id === exerciseId)
-      ?.sets.find((set) => set.id === setId);
+      ?.sets.find((set) => set.id === setId)
 
     updateWorkoutState((current) => ({
       ...current,
@@ -733,7 +721,7 @@ export default function ActiveWorkoutScreen() {
             }
           : exercise
       ),
-    }));
+    }))
 
     if (
       !targetSet ||
@@ -741,47 +729,85 @@ export default function ActiveWorkoutScreen() {
       setId.startsWith("draft") ||
       setId.startsWith("temp")
     ) {
-      return;
+      return
     }
 
     apiRequest(`/api/exercise-sets/${setId}`, {
       method: "DELETE",
     }).catch((err: unknown) => {
-      console.warn("Failed to remove set", err);
-    });
+      console.warn("Failed to remove set", err)
+    })
   }
+
+  function removeExercise(exerciseId: string) {
+    triggerLightHaptic()
+
+    const current = latestDataRef.current
+    if (!current) return
+
+    const targetExercise = current.exercises.find(
+      (exercise) => exercise.id === exerciseId
+    )
+
+    if (!targetExercise) return
+
+    updateWorkoutState((draft) => ({
+      ...draft,
+      exercises: draft.exercises
+        .filter((exercise) => exercise.id !== exerciseId)
+        .map((exercise, index) => ({
+          ...exercise,
+          order_index: index,
+        })),
+    }))
+
+    if (
+      targetExercise.isTemp ||
+      exerciseId.startsWith("draft") ||
+      exerciseId.startsWith("temp")
+    ) {
+      return
+    }
+
+    apiRequest(`/api/workout-exercises/${exerciseId}`, {
+      method: "DELETE",
+    }).catch((err: unknown) => {
+      console.warn("Failed to remove exercise", err)
+    })
+  }
+
   function reorderExercise(exerciseId: string, direction: -1 | 1) {
-    const current = latestDataRef.current;
-    if (!current) return;
+    const current = latestDataRef.current
+    if (!current) return
 
     const currentIndex = current.exercises.findIndex(
       (exercise) => exercise.id === exerciseId
-    );
-    const nextIndex = currentIndex + direction;
+    )
+    const nextIndex = currentIndex + direction
 
     if (
       currentIndex < 0 ||
       nextIndex < 0 ||
       nextIndex >= current.exercises.length
     ) {
-      return;
+      return
     }
 
-    triggerLightHaptic();
+    triggerLightHaptic()
 
-    const reordered = [...current.exercises];
-    const [movedExercise] = reordered.splice(currentIndex, 1);
-    reordered.splice(nextIndex, 0, movedExercise);
+    const reordered = [...current.exercises]
+    const [movedExercise] = reordered.splice(currentIndex, 1)
+    reordered.splice(nextIndex, 0, movedExercise)
 
     const reorderedWithIndex = reordered.map((exercise, index) => ({
       ...exercise,
       order_index: index,
-    }));
+    }))
 
     updateWorkoutState((draft) => ({
       ...draft,
       exercises: reorderedWithIndex,
-    }));
+    }))
 
     Promise.all(
       reorderedWithIndex
@@ -798,91 +824,54 @@ export default function ActiveWorkoutScreen() {
               order_index: index,
             }),
           }).catch((err: unknown) => {
-            console.warn("Failed to save exercise order", err);
+            console.warn("Failed to save exercise order", err)
           })
         )
     ).catch((err: unknown) => {
-      console.warn("Failed to reorder exercises", err);
-    });
-  }
-  function removeExercise(exerciseId: string) {
-    triggerLightHaptic();
-  
-    const current = latestDataRef.current;
-    if (!current) return;
-  
-    const targetExercise = current.exercises.find(
-      (exercise) => exercise.id === exerciseId
-    );
-  
-    if (!targetExercise) return;
-  
-    updateWorkoutState((draft) => ({
-      ...draft,
-      exercises: draft.exercises
-        .filter((exercise) => exercise.id !== exerciseId)
-        .map((exercise, index) => ({
-          ...exercise,
-          order_index: index,
-        })),
-    }));
-  
-    if (
-      targetExercise.isTemp ||
-      exerciseId.startsWith("draft") ||
-      exerciseId.startsWith("temp")
-    ) {
-      return;
-    }
-  
-    apiRequest(`/api/workout-exercises/${exerciseId}`, {
-      method: "DELETE",
-    }).catch((err: unknown) => {
-      console.warn("Failed to remove exercise", err);
-    });
+      console.warn("Failed to reorder exercises", err)
+    })
   }
 
   function handleExerciseSearchInput(value: string) {
-    setExerciseQuery(value);
+    setExerciseQuery(value)
 
     if (searchTimerRef.current) {
-      clearTimeout(searchTimerRef.current);
+      clearTimeout(searchTimerRef.current)
     }
 
     if (value.trim().length < 2) {
-      setExerciseResults([]);
-      return;
+      setExerciseResults([])
+      return
     }
 
     searchTimerRef.current = setTimeout(() => {
-      setSearchingExercises(true);
+      setSearchingExercises(true)
 
       apiRequest<ExerciseSearchResult[]>(
         `/api/exercises/search?q=${encodeURIComponent(value.trim())}`
       )
         .then((results) => {
-          setExerciseResults(Array.isArray(results) ? results : []);
+          setExerciseResults(Array.isArray(results) ? results : [])
         })
         .catch((err: unknown) => {
-          console.warn("Failed to search exercises", err);
-          setExerciseResults([]);
+          console.warn("Failed to search exercises", err)
+          setExerciseResults([])
         })
         .finally(() => {
-          setSearchingExercises(false);
-        });
-    }, 350);
+          setSearchingExercises(false)
+        })
+    }, 350)
   }
 
   function addExercise(result: ExerciseSearchResult) {
-    const current = latestDataRef.current;
-    if (!current) return;
+    const current = latestDataRef.current
+    if (!current) return
 
-    triggerMediumHaptic();
+    triggerMediumHaptic()
 
-    const workoutId = current.workout.id;
-    const tempExerciseId = makeTempId("temp-exercise");
-    const muscleGroup =
-      result.target || result.muscle_group || result.bodyPart || "other";
+    const workoutId = current.workout.id
+    const tempExerciseId = makeTempId("temp-exercise")
+    const muscleGroup = result.target || result.muscle_group || result.bodyPart || "other"
 
     const optimisticExercise: MobileWorkoutExercise = {
       id: tempExerciseId,
@@ -894,19 +883,19 @@ export default function ActiveWorkoutScreen() {
       isTemp: true,
       last_session: [],
       sets: [],
-    };
+    }
 
     updateWorkoutState((draft) => ({
       ...draft,
       exercises: [...draft.exercises, optimisticExercise],
-    }));
+    }))
 
-    setShowExerciseSearch(false);
-    setExerciseQuery("");
-    setExerciseResults([]);
+    setShowExerciseSearch(false)
+    setExerciseQuery("")
+    setExerciseResults([])
 
     if (current.workout.isTemp || workoutId.startsWith("draft")) {
-      return;
+      return
     }
 
     apiRequest<MobileWorkoutExercise>("/api/workout-exercises", {
@@ -932,18 +921,104 @@ export default function ActiveWorkoutScreen() {
                 }
               : exercise
           ),
-        }));
+        }))
       })
       .catch((err: unknown) => {
-        console.warn("Failed to add exercise", err);
-      });
+        console.warn("Failed to add exercise", err)
+      })
+  }
+
+  function buildTemplateOverwriteExercises(current: MobileActiveWorkoutResponse) {
+    return current.exercises.map((exercise, exerciseIndex) => {
+      const sortedSets = [...exercise.sets].sort(
+        (a, b) => Number(a.set_number ?? 0) - Number(b.set_number ?? 0)
+      )
+
+      const lastSet = sortedSets[sortedSets.length - 1]
+
+      return {
+        exercise_name: exercise.exercise_name,
+        muscle_group: exercise.muscle_group ?? "other",
+        order_index: exerciseIndex,
+        default_sets: Math.max(1, sortedSets.length),
+        default_reps: Math.max(0, getSetNumberValue(lastSet?.reps ?? 0)),
+        default_weight_kg: Math.max(
+          0,
+          getSetNumberValue(lastSet?.weight_kg ?? 0)
+        ),
+      }
+    })
+  }
+
+  async function updateTemplateFromWorkout() {
+    const current = latestDataRef.current
+    const templateId = current?.startedFromTemplateId
+
+    if (!current || !templateId || templateUpdateStatus === "saving") {
+      return
+    }
+
+    triggerMediumHaptic()
+    setTemplateUpdateStatus("saving")
+
+    const exercisesForTemplate = buildTemplateOverwriteExercises(current)
+
+    try {
+      const updatedTemplate = await apiRequest<MobileWorkoutTemplate>(
+        `/api/mobile/templates/${templateId}/overwrite-from-workout`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            exercises: exercisesForTemplate,
+          }),
+        }
+      )
+
+      const cachedTemplates = getCachedTemplates()
+
+      if (cachedTemplates) {
+        const nextTemplates = cachedTemplates.templates.map((template) =>
+          template.id === updatedTemplate.id
+            ? {
+                ...template,
+                ...updatedTemplate,
+                lastSetsByExercise: template.lastSetsByExercise ?? {},
+              }
+            : template
+        )
+
+        const nextTemplate =
+          cachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
+            ? {
+                ...cachedTemplates.plan.nextTemplate,
+                ...updatedTemplate,
+                lastSetsByExercise:
+                  cachedTemplates.plan.nextTemplate.lastSetsByExercise ?? {},
+              }
+            : cachedTemplates.plan.nextTemplate
+
+        setCachedTemplates({
+          ...cachedTemplates,
+          templates: nextTemplates,
+          plan: {
+            ...cachedTemplates.plan,
+            nextTemplate,
+          },
+        })
+      }
+
+      setTemplateUpdateStatus("saved")
+    } catch (err) {
+      console.warn("Failed to update template from workout", err)
+      setTemplateUpdateStatus("idle")
+    }
   }
 
   async function cancelWorkout() {
-    triggerMediumHaptic();
-    setCancelling(true);
+    triggerMediumHaptic()
+    setCancelling(true)
 
-    const current = latestDataRef.current;
+    const current = latestDataRef.current
 
     if (
       current &&
@@ -953,20 +1028,20 @@ export default function ActiveWorkoutScreen() {
       apiRequest(`/api/workouts/${current.workout.id}`, {
         method: "DELETE",
       }).catch((err: unknown) => {
-        console.warn("Failed to delete workout while cancelling", err);
-      });
+        console.warn("Failed to delete workout while cancelling", err)
+      })
     }
 
-    router.back();
+    router.back()
   }
 
   async function finishWorkout() {
-    const current = latestDataRef.current;
-    if (!current || finishing) return;
+    const current = latestDataRef.current
+    if (!current || finishing) return
 
-    triggerMediumHaptic();
+    triggerMediumHaptic()
 
-    const durationMinutes = Math.max(1, Math.floor(elapsed / 60));
+    const durationMinutes = Math.max(1, Math.floor(elapsed / 60))
     const recap: RecapData = {
       exercises: current.exercises.length,
       sets: current.exercises.reduce(
@@ -975,15 +1050,16 @@ export default function ActiveWorkoutScreen() {
       ),
       volume: calculateVolume(current.exercises),
       duration: durationMinutes,
-    };
+    }
 
-    setRecapData(recap);
-    setShowRecap(true);
-    setFinishing(false);
+    setRecapData(recap)
+    setTemplateUpdateStatus("idle")
+    setShowRecap(true)
+    setFinishing(false)
 
     flushSaves().catch((err: unknown) => {
-      console.warn("Failed to flush saves on finish", err);
-    });
+      console.warn("Failed to flush saves on finish", err)
+    })
 
     if (!current.workout.isTemp && !current.workout.id.startsWith("draft")) {
       apiRequest(`/api/workouts/${current.workout.id}`, {
@@ -993,8 +1069,8 @@ export default function ActiveWorkoutScreen() {
           duration_minutes: durationMinutes,
         }),
       }).catch((err: unknown) => {
-        console.warn("Failed to finish workout", err);
-      });
+        console.warn("Failed to finish workout", err)
+      })
     }
 
     if (current.startedFromQueuedTemplate && current.startedFromTemplateId) {
@@ -1004,17 +1080,18 @@ export default function ActiveWorkoutScreen() {
           template_id: current.startedFromTemplateId,
         }),
       }).catch((err: unknown) => {
-        console.warn("Failed to advance workout plan", err);
-      });
+        console.warn("Failed to advance workout plan", err)
+      })
     }
   }
+
   if (loading && !data) {
     return (
       <SafeAreaView style={styles.centered} edges={["top"]}>
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading workout...</Text>
       </SafeAreaView>
-    );
+    )
   }
 
   if (error && !data) {
@@ -1029,7 +1106,7 @@ export default function ActiveWorkoutScreen() {
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    );
+    )
   }
 
   return (
@@ -1102,9 +1179,7 @@ export default function ActiveWorkoutScreen() {
               <View>
                 <Text style={styles.restLabel}>Rest Timer</Text>
                 {restRemaining !== null ? (
-                  <Text style={styles.restTime}>
-                    {formatTime(restRemaining)}
-                  </Text>
+                  <Text style={styles.restTime}>{formatTime(restRemaining)}</Text>
                 ) : (
                   <Text style={styles.restHint}>Complete a set to start</Text>
                 )}
@@ -1112,10 +1187,7 @@ export default function ActiveWorkoutScreen() {
 
               <View style={styles.restActions}>
                 {restRemaining !== null ? (
-                  <Pressable
-                    onPress={cancelRestTimer}
-                    style={styles.restCancel}
-                  >
+                  <Pressable onPress={cancelRestTimer} style={styles.restCancel}>
                     <Text style={styles.restCancelText}>Cancel</Text>
                   </Pressable>
                 ) : null}
@@ -1137,8 +1209,8 @@ export default function ActiveWorkoutScreen() {
                   <Pressable
                     key={seconds}
                     onPress={() => {
-                      setRestDuration(seconds);
-                      setShowRestPicker(false);
+                      setRestDuration(seconds)
+                      setShowRestPicker(false)
                     }}
                     style={[
                       styles.restPickerButton,
@@ -1166,7 +1238,7 @@ export default function ActiveWorkoutScreen() {
           <View style={styles.exerciseList}>
             {exercises.map((exercise, index) => (
               <ExerciseCard
-                key={exercise.id}
+                key={`${exercise.id}-${exercise.order_index ?? index}-${index}`}
                 exercise={exercise}
                 isFirst={index === 0}
                 isLast={index === exercises.length - 1}
@@ -1223,9 +1295,9 @@ export default function ActiveWorkoutScreen() {
         results={exerciseResults}
         onChangeQuery={handleExerciseSearchInput}
         onClose={() => {
-          setShowExerciseSearch(false);
-          setExerciseQuery("");
-          setExerciseResults([]);
+          setShowExerciseSearch(false)
+          setExerciseQuery("")
+          setExerciseResults([])
         }}
         onSelect={addExercise}
       />
@@ -1241,14 +1313,21 @@ export default function ActiveWorkoutScreen() {
         visible={showRecap}
         workoutName={workoutName}
         recap={recapData}
+        canUpdateTemplate={Boolean(latestDataRef.current?.startedFromTemplateId)}
+        templateUpdateStatus={templateUpdateStatus}
+        onUpdateTemplate={updateTemplateFromWorkout}
         onClose={() => {
-          setShowRecap(false);
-          router.replace("/(tabs)");
+          setShowRecap(false)
+
+          requestAnimationFrame(() => {
+            router.replace("/(tabs)")
+          })
         }}
       />
     </SafeAreaView>
-  );
+  )
 }
+
 function ExerciseCard({
   exercise,
   isFirst,
@@ -1261,19 +1340,19 @@ function ExerciseCard({
   onMoveUp,
   onMoveDown,
 }: {
-  exercise: MobileWorkoutExercise;
-  isFirst: boolean;
-  isLast: boolean;
+  exercise: MobileWorkoutExercise
+  isFirst: boolean
+  isLast: boolean
   onOpenSetEditor: (args: {
-    exercise: MobileWorkoutExercise;
-    set: MobileExerciseSet;
-  }) => void;
-  onToggleSet: (exerciseId: string, setId: string) => void;
-  onAddSet: (exerciseId: string) => void;
-  onRemoveSet: (exerciseId: string, setId: string) => void;
-  onRemoveExercise: (exerciseId: string) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
+    exercise: MobileWorkoutExercise
+    set: MobileExerciseSet
+  }) => void
+  onToggleSet: (exerciseId: string, setId: string) => void
+  onAddSet: (exerciseId: string) => void
+  onRemoveSet: (exerciseId: string, setId: string) => void
+  onRemoveExercise: (exerciseId: string) => void
+  onMoveUp: () => void
+  onMoveDown: () => void
 }) {
   return (
     <FitCard style={styles.exerciseCard}>
@@ -1289,10 +1368,7 @@ function ExerciseCard({
           <Pressable
             onPress={onMoveUp}
             disabled={isFirst}
-            style={[
-              styles.exerciseMoveButton,
-              isFirst && styles.disabledMoveButton,
-            ]}
+            style={[styles.exerciseMoveButton, isFirst && styles.disabledMoveButton]}
           >
             <Ionicons name="chevron-up" size={17} color={colors.textMuted} />
           </Pressable>
@@ -1300,10 +1376,7 @@ function ExerciseCard({
           <Pressable
             onPress={onMoveDown}
             disabled={isLast}
-            style={[
-              styles.exerciseMoveButton,
-              isLast && styles.disabledMoveButton,
-            ]}
+            style={[styles.exerciseMoveButton, isLast && styles.disabledMoveButton]}
           >
             <Ionicons name="chevron-down" size={17} color={colors.textMuted} />
           </Pressable>
@@ -1321,8 +1394,11 @@ function ExerciseCard({
         <View style={styles.lastSessionBox}>
           <Text style={styles.lastSessionTitle}>Last session:</Text>
           <View style={styles.lastSessionWrap}>
-            {exercise.last_session.map((set) => (
-              <Text key={set.set_number} style={styles.lastSessionText}>
+            {exercise.last_session.map((set, index) => (
+              <Text
+                key={`${exercise.id}-last-${set.set_number}-${index}`}
+                style={styles.lastSessionText}
+              >
                 Set {set.set_number}: {set.weight_kg}kg × {set.reps}
               </Text>
             ))}
@@ -1339,9 +1415,9 @@ function ExerciseCard({
       ) : null}
 
       <View style={styles.setList}>
-        {exercise.sets.map((set) => (
+        {exercise.sets.map((set, index) => (
           <SetRow
-            key={set.id}
+            key={`${set.id}-${set.set_number}-${index}`}
             exercise={exercise}
             set={set}
             onOpenSetEditor={onOpenSetEditor}
@@ -1361,7 +1437,7 @@ function ExerciseCard({
         <Text style={styles.addSetText}>+ Add Set</Text>
       </Pressable>
     </FitCard>
-  );
+  )
 }
 
 function SetRow({
@@ -1371,22 +1447,17 @@ function SetRow({
   onToggleSet,
   onRemoveSet,
 }: {
-  exercise: MobileWorkoutExercise;
-  set: MobileExerciseSet;
+  exercise: MobileWorkoutExercise
+  set: MobileExerciseSet
   onOpenSetEditor: (args: {
-    exercise: MobileWorkoutExercise;
-    set: MobileExerciseSet;
-  }) => void;
-  onToggleSet: (exerciseId: string, setId: string) => void;
-  onRemoveSet: (exerciseId: string, setId: string) => void;
+    exercise: MobileWorkoutExercise
+    set: MobileExerciseSet
+  }) => void
+  onToggleSet: (exerciseId: string, setId: string) => void
+  onRemoveSet: (exerciseId: string, setId: string) => void
 }) {
   return (
-    <View
-      style={[
-        styles.compactSetRow,
-        set.completed ? styles.setRowComplete : null,
-      ]}
-    >
+    <View style={[styles.compactSetRow, set.completed ? styles.setRowComplete : null]}>
       <Text
         style={[
           styles.compactSetNumber,
@@ -1432,7 +1503,7 @@ function SetRow({
         </Pressable>
       </View>
     </View>
-  );
+  )
 }
 
 function SetEditorModal({
@@ -1441,10 +1512,10 @@ function SetEditorModal({
   onAdjust,
   onChange,
 }: {
-  editingSet: EditingSetState;
-  onClose: () => void;
-  onAdjust: (field: "reps" | "weight_kg", direction: -1 | 1) => void;
-  onChange: (field: "reps" | "weight_kg", value: string) => void;
+  editingSet: EditingSetState
+  onClose: () => void
+  onAdjust: (field: "reps" | "weight_kg", direction: -1 | 1) => void
+  onChange: (field: "reps" | "weight_kg", value: string) => void
 }) {
   return (
     <Modal
@@ -1528,8 +1599,9 @@ function SetEditorModal({
         </View>
       </View>
     </Modal>
-  );
+  )
 }
+
 function ExerciseSearchModal({
   visible,
   query,
@@ -1539,13 +1611,13 @@ function ExerciseSearchModal({
   onClose,
   onSelect,
 }: {
-  visible: boolean;
-  query: string;
-  searching: boolean;
-  results: ExerciseSearchResult[];
-  onChangeQuery: (value: string) => void;
-  onClose: () => void;
-  onSelect: (exercise: ExerciseSearchResult) => void;
+  visible: boolean
+  query: string
+  searching: boolean
+  results: ExerciseSearchResult[]
+  onChangeQuery: (value: string) => void
+  onClose: () => void
+  onSelect: (exercise: ExerciseSearchResult) => void
 }) {
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -1578,9 +1650,9 @@ function ExerciseSearchModal({
               <Text style={styles.noResultsText}>No exercises found</Text>
             ) : null}
 
-            {results.map((exercise) => (
+            {results.map((exercise, index) => (
               <Pressable
-                key={`${exercise.id}-${exercise.name}`}
+                key={`${exercise.id}-${exercise.name}-${index}`}
                 onPress={() => onSelect(exercise)}
                 style={styles.searchResultRow}
               >
@@ -1603,20 +1675,33 @@ function ExerciseSearchModal({
         </View>
       </View>
     </Modal>
-  );
+  )
 }
 
 function RecapModal({
   visible,
   workoutName,
   recap,
+  canUpdateTemplate,
+  templateUpdateStatus,
+  onUpdateTemplate,
   onClose,
 }: {
-  visible: boolean;
-  workoutName: string;
-  recap: RecapData | null;
-  onClose: () => void;
+  visible: boolean
+  workoutName: string
+  recap: RecapData | null
+  canUpdateTemplate: boolean
+  templateUpdateStatus: "idle" | "saving" | "saved"
+  onUpdateTemplate: () => void
+  onClose: () => void
 }) {
+  const updateLabel =
+    templateUpdateStatus === "saving"
+      ? "Updating..."
+      : templateUpdateStatus === "saved"
+        ? "Template Updated"
+        : "Update Template"
+
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.recapBackdrop}>
@@ -1649,13 +1734,41 @@ function RecapModal({
             </View>
           </View>
 
+          {canUpdateTemplate ? (
+            <View style={styles.templateUpdateBox}>
+              <Text style={styles.templateUpdateTitle}>Update template?</Text>
+              <Text style={styles.templateUpdateText}>
+                Save this workout’s exercises, order, set count, reps, and
+                weights as the new template defaults for next time.
+              </Text>
+
+              <Pressable
+                onPress={onUpdateTemplate}
+                disabled={
+                  templateUpdateStatus === "saving" ||
+                  templateUpdateStatus === "saved"
+                }
+                style={[
+                  styles.templateUpdateButton,
+                  templateUpdateStatus === "saved"
+                    ? styles.templateUpdateButtonSaved
+                    : null,
+                ]}
+              >
+                <Text style={styles.templateUpdateButtonText}>
+                  {updateLabel}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <Pressable onPress={onClose} style={styles.recapButton}>
             <Text style={styles.recapButtonText}>Back to Home</Text>
           </Pressable>
         </View>
       </View>
     </Modal>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
@@ -1873,12 +1986,28 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textTransform: "capitalize",
   },
+  exerciseHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  exerciseMoveButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  disabledMoveButton: {
+    opacity: 0.3,
+  },
   removeExerciseButton: {
     borderRadius: radius.md,
     borderColor: colors.red,
     borderWidth: 1,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   removeExerciseText: {
     color: colors.red,
@@ -1907,87 +2036,82 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  setHeader: {
+  compactSetHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 8,
-    paddingHorizontal: 2,
-    gap: 6,
+    paddingHorizontal: 4,
   },
-  setHeaderText: {
+  compactSetHeaderSet: {
+    width: 42,
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  compactSetHeaderMain: {
     flex: 1,
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: "800",
     textAlign: "center",
   },
-  setHeaderSet: {
-    flex: 0.32,
-    textAlign: "left",
-  },
-  setHeaderDone: {
-    flex: 0.72,
+  compactSetHeaderDone: {
+    width: 74,
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "right",
   },
   setList: {
     gap: 8,
   },
-  setRow: {
+  compactSetRow: {
+    minHeight: 58,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    borderRadius: radius.md,
-    paddingVertical: 5,
-    paddingHorizontal: 2,
+    paddingHorizontal: spacing.md,
+    gap: spacing.md,
   },
   setRowComplete: {
     backgroundColor: colors.tealSoft,
   },
-  setNumber: {
-    flex: 0.32,
+  compactSetNumber: {
+    width: 28,
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "900",
     textAlign: "center",
   },
   setNumberCompleteText: {
     color: colors.teal,
   },
-  numberControl: {
+  compactSetValueButton: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  numberButton: {
-    width: 30,
-    height: 34,
+    minHeight: 46,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  numberButtonText: {
-    color: colors.textMuted,
-    fontSize: 18,
+  compactSetValue: {
+    color: colors.text,
+    fontSize: 17,
     fontWeight: "900",
   },
-  numberInput: {
-    flex: 1,
-    minWidth: 44,
-    height: 36,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceLight,
-    borderColor: colors.border,
-    borderWidth: 1,
-    color: colors.text,
-    textAlign: "center",
-    fontSize: 14,
-    fontWeight: "800",
-    paddingHorizontal: 4,
+  compactSetHint: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
   },
-  setActions: {
-    flex: 0.72,
+  compactSetActions: {
+    width: 74,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "flex-end",
     gap: 4,
   },
@@ -2073,6 +2197,103 @@ const styles = StyleSheet.create({
   summaryMuted: {
     color: colors.textMuted,
     fontWeight: "700",
+  },
+  setEditorBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  setEditorCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+  },
+  setEditorExercise: {
+    color: colors.text,
+    fontSize: 21,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "capitalize",
+  },
+  setEditorTitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: spacing.lg,
+  },
+  setEditorSection: {
+    marginBottom: spacing.lg,
+  },
+  setEditorLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+    marginBottom: spacing.md,
+  },
+  setEditorControlRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  setEditorBigButton: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  setEditorBigButtonText: {
+    color: colors.text,
+    fontSize: 30,
+    fontWeight: "900",
+  },
+  setEditorValueBox: {
+    flex: 1,
+    minHeight: 64,
+    borderRadius: radius.lg,
+    backgroundColor: colors.background,
+    borderColor: colors.borderStrong,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  setEditorInput: {
+    color: colors.text,
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "center",
+    minWidth: 80,
+    padding: 0,
+  },
+  setEditorUnit: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: -2,
+  },
+  setEditorDoneButton: {
+    minHeight: 54,
+    borderRadius: radius.lg,
+    backgroundColor: colors.teal,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.sm,
+  },
+  setEditorDoneText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: "900",
   },
   searchBackdrop: {
     flex: 1,
@@ -2219,6 +2440,44 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 4,
   },
+  templateUpdateBox: {
+    backgroundColor: colors.surfaceLight,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  templateUpdateTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  templateUpdateText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  templateUpdateButton: {
+    minHeight: 46,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  templateUpdateButtonSaved: {
+    backgroundColor: colors.tealSoft,
+  },
+  templateUpdateButtonText: {
+    color: colors.teal,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   recapButton: {
     minHeight: 54,
     borderRadius: radius.lg,
@@ -2231,187 +2490,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
-  compactSetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  compactSetHeaderSet: {
-    width: 42,
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  compactSetHeaderMain: {
-    flex: 1,
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  compactSetHeaderDone: {
-    width: 74,
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    textAlign: "right",
-  },
-  compactSetRow: {
-    minHeight: 58,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.md,
-    gap: spacing.md,
-  },
-  compactSetNumber: {
-    width: 28,
-    color: colors.textMuted,
-    fontSize: 15,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  compactSetValueButton: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  compactSetValue: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  compactSetHint: {
-    color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  compactSetActions: {
-    width: 74,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 4,
-  },
-  setEditorBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.72)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacing.lg,
-  },
-  setEditorCard: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-  },
-  setEditorExercise: {
-    color: colors.text,
-    fontSize: 21,
-    fontWeight: "900",
-    textAlign: "center",
-    textTransform: "capitalize",
-  },
-  setEditorTitle: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: "800",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: spacing.lg,
-  },
-  setEditorSection: {
-    marginBottom: spacing.lg,
-  },
-  setEditorLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: spacing.md,
-  },
-  setEditorControlRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  setEditorBigButton: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setEditorBigButtonText: {
-    color: colors.text,
-    fontSize: 30,
-    fontWeight: "900",
-  },
-  setEditorValueBox: {
-    flex: 1,
-    minHeight: 64,
-    borderRadius: radius.lg,
-    backgroundColor: colors.background,
-    borderColor: colors.borderStrong,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setEditorInput: {
-    color: colors.text,
-    fontSize: 26,
-    fontWeight: "900",
-    textAlign: "center",
-    minWidth: 80,
-    padding: 0,
-  },
-  setEditorUnit: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: -2,
-  },
-  setEditorDoneButton: {
-    minHeight: 54,
-    borderRadius: radius.lg,
-    backgroundColor: colors.teal,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.sm,
-  },
-  setEditorDoneText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  exerciseHeaderActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  exerciseMoveButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  disabledMoveButton: {
-    opacity: 0.3,
-  },
-});
+})

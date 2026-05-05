@@ -21,6 +21,11 @@ import {
 } from "@/lib/activeWorkoutCache"
 import { getMobileHome, getMobileTemplates, startMobileWorkout } from "@/lib/api"
 import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
+import {
+  getCachedTemplates,
+  getOrLoadTemplates,
+  subscribeToTemplatesCache,
+} from "@/lib/templatesCache"
 import { MobileHomeResponse } from "@/types/home"
 import { MobileWorkoutTemplate } from "@/types/workouts"
 
@@ -32,9 +37,13 @@ function getFirstName(name?: string | null) {
 export default function HomeScreen() {
   const { getToken } = useAuth()
 
+  const cachedTemplates = getCachedTemplates()
+
   const [data, setData] = useState<MobileHomeResponse | null>(null)
   const [preparedNextTemplate, setPreparedNextTemplate] =
-    useState<MobileWorkoutTemplate | null>(null)
+    useState<MobileWorkoutTemplate | null>(
+      cachedTemplates?.plan.nextTemplate ?? null
+    )
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [startingWorkout, setStartingWorkout] = useState(false)
@@ -68,25 +77,25 @@ export default function HomeScreen() {
   }, [loadHome])
 
   useEffect(() => {
-    let cancelled = false
+    const cached = getCachedTemplates()
 
-    async function prefetchPreparedNextWorkout() {
-      try {
-        const templates = await getMobileTemplates(getToken)
+    if (cached?.plan.nextTemplate) {
+      setPreparedNextTemplate(cached.plan.nextTemplate)
+    }
 
-        if (cancelled) return
+    const unsubscribe = subscribeToTemplatesCache((templates) => {
+      setPreparedNextTemplate(templates.plan.nextTemplate)
+    })
 
+    getOrLoadTemplates(() => getMobileTemplates(getToken))
+      .then((templates) => {
         setPreparedNextTemplate(templates.plan.nextTemplate)
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
         console.warn("Failed to prefetch next workout", err)
-      }
-    }
+      })
 
-    prefetchPreparedNextWorkout()
-
-    return () => {
-      cancelled = true
-    }
+    return unsubscribe
   }, [getToken])
 
   async function handleStartNextWorkout() {
@@ -99,7 +108,7 @@ export default function HomeScreen() {
         setStartingWorkout(true)
         setError(null)
 
-        const templates = await getMobileTemplates(getToken)
+        const templates = await getOrLoadTemplates(() => getMobileTemplates(getToken))
         const prepared = templates.plan.nextTemplate
 
         if (!prepared) {

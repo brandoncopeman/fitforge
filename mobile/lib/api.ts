@@ -7,6 +7,7 @@ import {
 import { MobileHomeResponse } from "@/types/home"
 import { MobileTemplatesResponse, MobileWorkoutTemplate } from "@/types/workouts"
 
+
 const API_BASE_URL = "https://myfitforge.vercel.app"
 
 type GetToken = () => Promise<string | null>
@@ -252,7 +253,29 @@ export async function setMobileNextTemplate(
     }),
   })
 }
-
+export async function overwriteMobileTemplateFromWorkout(
+  getToken: GetToken,
+  templateId: string,
+  exercises: {
+    exercise_name: string
+    muscle_group: string | null
+    order_index: number
+    default_sets: number
+    default_reps: number
+    default_weight_kg: number
+  }[]
+): Promise<MobileWorkoutTemplate> {
+  return apiFetch<MobileWorkoutTemplate>(
+    `/api/mobile/templates/${templateId}/overwrite-from-workout`,
+    getToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        exercises,
+      }),
+    }
+  )
+}
 export async function updateMobileTemplatePlanStatus(
   getToken: GetToken,
   templateId: string,
