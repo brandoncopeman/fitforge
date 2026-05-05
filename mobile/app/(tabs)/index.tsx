@@ -11,7 +11,12 @@ import {
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-
+import {
+  getCachedHome,
+  getOrLoadHome,
+  setCachedHome,
+  subscribeToHomeCache,
+} from "@/lib/homeCache"
 import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
@@ -38,43 +43,78 @@ export default function HomeScreen() {
   const { getToken } = useAuth()
 
   const cachedTemplates = getCachedTemplates()
+const cachedHome = getCachedHome()
 
-  const [data, setData] = useState<MobileHomeResponse | null>(null)
-  const [preparedNextTemplate, setPreparedNextTemplate] =
-    useState<MobileWorkoutTemplate | null>(
-      cachedTemplates?.plan.nextTemplate ?? null
-    )
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [startingWorkout, setStartingWorkout] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadHome = useCallback(
-    async (isRefresh = false) => {
-      try {
-        if (isRefresh) {
-          setRefreshing(true)
-        } else {
-          setLoading(true)
-        }
-
-        setError(null)
-
-        const home = await getMobileHome(getToken)
-        setData(home)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load home")
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    },
-    [getToken]
+const [data, setData] = useState<MobileHomeResponse | null>(cachedHome)
+const [preparedNextTemplate, setPreparedNextTemplate] =
+  useState<MobileWorkoutTemplate | null>(
+    cachedTemplates?.plan.nextTemplate ?? null
   )
+const [loading, setLoading] = useState(!cachedHome)
+const [refreshing, setRefreshing] = useState(false)
+const [startingWorkout, setStartingWorkout] = useState(false)
+const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadHome()
-  }, [loadHome])
+const loadHome = useCallback(
+  async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true)
+      } else {
+        setLoading(!getCachedHome())
+      }
+
+      setError(null)
+
+      const home = await getMobileHome(getToken)
+
+      setCachedHome(home)
+      setData(home)
+    } catch (err) {
+      console.warn("Failed to load home", err)
+
+      if (!getCachedHome()) {
+        setError(err instanceof Error ? err.message : "Failed to load home")
+      }
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  },
+  [getToken]
+)
+
+useEffect(() => {
+  const cached = getCachedHome()
+
+  if (cached) {
+    setData(cached)
+    setLoading(false)
+  }
+
+  const unsubscribe = subscribeToHomeCache((home) => {
+    setData(home)
+    setLoading(false)
+  })
+
+  getOrLoadHome(() => getMobileHome(getToken))
+    .then((home) => {
+      setData(home)
+      setLoading(false)
+    })
+    .catch((err: unknown) => {
+      console.warn("Failed to warm home cache", err)
+
+      if (!getCachedHome()) {
+        setError(err instanceof Error ? err.message : "Failed to load home")
+      }
+    })
+    .finally(() => {
+      setLoading(false)
+    })
+
+  return unsubscribe
+}, [getToken])
 
   useEffect(() => {
     const cached = getCachedTemplates()

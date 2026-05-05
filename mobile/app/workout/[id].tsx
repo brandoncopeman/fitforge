@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -848,7 +849,7 @@ export default function ActiveWorkoutScreen() {
       setSearchingExercises(true)
 
       apiRequest<ExerciseSearchResult[]>(
-        `/api/exercises/search?q=${encodeURIComponent(value.trim())}`
+        `/api/mobile/exercises/search?q=${encodeURIComponent(value.trim())}`
       )
         .then((results) => {
           setExerciseResults(Array.isArray(results) ? results : [])
@@ -950,33 +951,35 @@ export default function ActiveWorkoutScreen() {
     })
   }
 
-  async function updateTemplateFromWorkout() {
+  function updateTemplateFromWorkout() {
     const current = latestDataRef.current
     const templateId = current?.startedFromTemplateId
-
+  
     if (!current || !templateId || templateUpdateStatus === "saving") {
       return
     }
-
+  
     triggerMediumHaptic()
-    setTemplateUpdateStatus("saving")
-
+  
+    // UI updates immediately. The API save happens in the background.
+    setTemplateUpdateStatus("saved")
+  
     const exercisesForTemplate = buildTemplateOverwriteExercises(current)
-
-    try {
-      const updatedTemplate = await apiRequest<MobileWorkoutTemplate>(
-        `/api/mobile/templates/${templateId}/overwrite-from-workout`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            exercises: exercisesForTemplate,
-          }),
-        }
-      )
-
-      const cachedTemplates = getCachedTemplates()
-
-      if (cachedTemplates) {
+  
+    apiRequest<MobileWorkoutTemplate>(
+      `/api/mobile/templates/${templateId}/overwrite-from-workout`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          exercises: exercisesForTemplate,
+        }),
+      }
+    )
+      .then((updatedTemplate) => {
+        const cachedTemplates = getCachedTemplates()
+  
+        if (!cachedTemplates) return
+  
         const nextTemplates = cachedTemplates.templates.map((template) =>
           template.id === updatedTemplate.id
             ? {
@@ -986,7 +989,7 @@ export default function ActiveWorkoutScreen() {
               }
             : template
         )
-
+  
         const nextTemplate =
           cachedTemplates.plan.nextTemplate?.id === updatedTemplate.id
             ? {
@@ -996,7 +999,7 @@ export default function ActiveWorkoutScreen() {
                   cachedTemplates.plan.nextTemplate.lastSetsByExercise ?? {},
               }
             : cachedTemplates.plan.nextTemplate
-
+  
         setCachedTemplates({
           ...cachedTemplates,
           templates: nextTemplates,
@@ -1005,13 +1008,24 @@ export default function ActiveWorkoutScreen() {
             nextTemplate,
           },
         })
-      }
+      })
+      .catch((err: unknown) => {
+        console.warn("Failed to update template from workout", err)
+  
+        // Do not show a blocking error. Just allow retry if user is still on recap.
+        setTemplateUpdateStatus("idle")
+      })
+  }
 
-      setTemplateUpdateStatus("saved")
-    } catch (err) {
-      console.warn("Failed to update template from workout", err)
-      setTemplateUpdateStatus("idle")
-    }
+  function goHomeAfterWorkout() {
+    setShowRecap(false)
+  
+    // Let the modal close first, then navigate. Home will render from cache.
+    requestAnimationFrame(() => {
+      InteractionManager.runAfterInteractions(() => {
+        router.replace("/")
+      })
+    })
   }
 
   async function cancelWorkout() {
@@ -1035,12 +1049,12 @@ export default function ActiveWorkoutScreen() {
     router.back()
   }
 
-  async function finishWorkout() {
+  function finishWorkout() {
     const current = latestDataRef.current
     if (!current || finishing) return
-
+  
     triggerMediumHaptic()
-
+  
     const durationMinutes = Math.max(1, Math.floor(elapsed / 60))
     const recap: RecapData = {
       exercises: current.exercises.length,
@@ -1051,16 +1065,17 @@ export default function ActiveWorkoutScreen() {
       volume: calculateVolume(current.exercises),
       duration: durationMinutes,
     }
-
+  
+    // Show recap immediately. Everything below is background work.
     setRecapData(recap)
     setTemplateUpdateStatus("idle")
     setShowRecap(true)
     setFinishing(false)
-
+  
     flushSaves().catch((err: unknown) => {
       console.warn("Failed to flush saves on finish", err)
     })
-
+  
     if (!current.workout.isTemp && !current.workout.id.startsWith("draft")) {
       apiRequest(`/api/workouts/${current.workout.id}`, {
         method: "PATCH",
@@ -1072,7 +1087,7 @@ export default function ActiveWorkoutScreen() {
         console.warn("Failed to finish workout", err)
       })
     }
-
+  
     if (current.startedFromQueuedTemplate && current.startedFromTemplateId) {
       apiRequest("/api/profile/advance-plan", {
         method: "POST",
@@ -1309,21 +1324,15 @@ export default function ActiveWorkoutScreen() {
         onChange={updateEditingSetValue}
       />
 
-      <RecapModal
-        visible={showRecap}
-        workoutName={workoutName}
-        recap={recapData}
-        canUpdateTemplate={Boolean(latestDataRef.current?.startedFromTemplateId)}
-        templateUpdateStatus={templateUpdateStatus}
-        onUpdateTemplate={updateTemplateFromWorkout}
-        onClose={() => {
-          setShowRecap(false)
-
-          requestAnimationFrame(() => {
-            router.replace("/(tabs)")
-          })
-        }}
-      />
+<RecapModal
+  visible={showRecap}
+  workoutName={workoutName}
+  recap={recapData}
+  canUpdateTemplate={Boolean(latestDataRef.current?.startedFromTemplateId)}
+  templateUpdateStatus={templateUpdateStatus}
+  onUpdateTemplate={updateTemplateFromWorkout}
+  onClose={goHomeAfterWorkout}
+/>
     </SafeAreaView>
   )
 }

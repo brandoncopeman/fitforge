@@ -30,7 +30,7 @@ import {
   updateMobileTemplatePlanStatus,
 } from "@/lib/api"
 import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
-import { setCachedTemplates } from "@/lib/templatesCache"
+import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache"
 import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -77,9 +77,12 @@ function sortPlanTemplates(templates: MobileWorkoutTemplate[]) {
 export default function WorkoutsScreen() {
   const { getToken } = useAuth()
 
-  const [data, setData] = useState<MobileTemplatesResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const [data, setData] = useState<MobileTemplatesResponse | null>(() => {
+    const cached = getCachedTemplates()
+    return cached ? normalizeTemplatesResponse(cached) : null
+  })
+  const [loading, setLoading] = useState(() => !getCachedTemplates())
+    const [refreshing, setRefreshing] = useState(false)
   const [startingTemplateId, setStartingTemplateId] = useState<string | null>(
     null
   )
@@ -89,6 +92,16 @@ export default function WorkoutsScreen() {
 
   const localMutationAtRef = useRef(0)
   const latestLoadStartedAtRef = useRef(0)
+  const dataRef = useRef<MobileTemplatesResponse | null>(data)
+  const getTokenRef = useRef(getToken)
+  
+  useEffect(() => {
+    dataRef.current = data
+  }, [data])
+  
+  useEffect(() => {
+    getTokenRef.current = getToken
+  }, [getToken])
 
   const currentData = useMemo(() => normalizeTemplatesResponse(data), [data])
   const templates = useMemo(() => currentData.templates, [currentData.templates])
@@ -105,47 +118,56 @@ export default function WorkoutsScreen() {
     localMutationAtRef.current = Date.now()
   }, [])
 
-  const loadTemplates = useCallback(
-    async (isRefresh = false) => {
-      const requestStartedAt = Date.now()
-      latestLoadStartedAtRef.current = requestStartedAt
-
-      try {
-        if (isRefresh) {
-          setRefreshing(true)
-        } else {
-          setLoading(true)
-        }
-
-        setError(null)
-
-        const templatesResponse = await getMobileTemplates(getToken)
-        const normalized = normalizeTemplatesResponse(templatesResponse)
-
-        setCachedTemplates(normalized)
-
-        const localChangedAfterRequest =
-          localMutationAtRef.current > requestStartedAt
-
-        const newerRequestStarted =
-          latestLoadStartedAtRef.current > requestStartedAt
-
-        if (localChangedAfterRequest || newerRequestStarted) {
-          return
-        }
-
-        setData(normalized)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load workouts")
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
+  const loadTemplates = useCallback(async (isRefresh = false) => {
+    const requestStartedAt = Date.now()
+    latestLoadStartedAtRef.current = requestStartedAt
+  
+    try {
+      if (isRefresh) {
+        setRefreshing(true)
+      } else {
+        setLoading(!dataRef.current)
       }
-    },
-    [getToken]
-  )
+  
+      setError(null)
+  
+      const templatesResponse = await getMobileTemplates(getTokenRef.current)
+      const normalized = normalizeTemplatesResponse(templatesResponse)
+  
+      const localChangedAfterRequest =
+        localMutationAtRef.current > requestStartedAt
+  
+      const newerRequestStarted =
+        latestLoadStartedAtRef.current > requestStartedAt
+  
+      if (localChangedAfterRequest || newerRequestStarted) {
+        return
+      }
+  
+      setCachedTemplates(normalized)
+      setData(normalized)
+    } catch (err) {
+      console.warn("Failed to load workouts", err)
+  
+      if (!dataRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to load workouts")
+      }
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
 
   useEffect(() => {
+    const cached = getCachedTemplates()
+  
+    if (cached) {
+      const normalized = normalizeTemplatesResponse(cached)
+      dataRef.current = normalized
+      setData(normalized)
+      setLoading(false)
+    }
+  
     loadTemplates()
   }, [loadTemplates])
 

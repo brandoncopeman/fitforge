@@ -129,41 +129,131 @@ const FALLBACK_EXERCISES = [
 
 export async function GET(req: Request) {
   const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+
+  if (!userId) {
+    return NextResponse.json({ error: "Not logged in" }, { status: 401 })
+  }
 
   const { searchParams } = new URL(req.url)
   const query = searchParams.get("q")?.trim().toLowerCase()
 
-  if (!query || query.length < 2) return NextResponse.json([])
+  if (!query || query.length < 2) {
+    return NextResponse.json([])
+  }
 
-  // First search DB (seeded exercises from RapidAPI)
-  const dbResults = await sql`
-    SELECT id, name, body_part as "bodyPart", target
-    FROM exercises
-    WHERE name ILIKE ${"%" + query + "%"}
-       OR body_part ILIKE ${"%" + query + "%"}
-       OR target ILIKE ${"%" + query + "%"}
-    ORDER BY
-      CASE WHEN name ILIKE ${query + "%"} THEN 0 ELSE 1 END,
-      name ASC
-    LIMIT 15
-  `
+  type ExerciseResult = {
+    id: string
+    name: string
+    bodyPart: string | null
+    target: string | null
+    source?: "seeded" | "fallback" | "custom"
+  }
 
-  // Then search fallback list
-  const fallbackResults = FALLBACK_EXERCISES.filter(ex =>
-    ex.name.includes(query) ||
-    ex.bodyPart.includes(query) ||
-    ex.target.includes(query)
-  )
+  const normalizeName = (name: string) =>
+    name.trim().toLowerCase().replace(/\s+/g, " ")
 
-  // Merge, deduplicate by name
-  const dbNames = new Set((dbResults as {name: string}[]).map(r => r.name.toLowerCase()))
-  const merged = [
-    ...dbResults,
-    ...fallbackResults
-      .filter(f => !dbNames.has(f.name.toLowerCase()))
-      .map(f => ({ id: f.id, name: f.name, bodyPart: f.bodyPart, target: f.target }))
-  ]
+  const matchesQuery = (value?: string | null) => {
+    return String(value || "").toLowerCase().includes(query)
+  }
 
-  return NextResponse.json(merged.slice(0, 15))
+  // Source 2 first: fallback should always work even if DB has issues.
+  const fallbackResults: ExerciseResult[] = FALLBACK_EXERCISES.filter((exercise) => {
+    return (
+      matchesQuery(exercise.name) ||
+      matchesQuery(exercise.bodyPart) ||
+      matchesQuery(exercise.target)
+    )
+  }).map((exercise) => ({
+    id: exercise.id,
+    name: exercise.name,
+    bodyPart: exercise.bodyPart,
+    target: exercise.target,
+    source: "fallback",
+  }))
+
+  // Source 1: seeded exercises table in Neon.
+  let seededResults: ExerciseResult[] = []
+
+  try {
+    seededResults = (await sql`
+      SELECT
+        id::text,
+        name,
+        body_part as "bodyPart",
+        target,
+        'seeded' as source
+      FROM exercises
+      WHERE name ILIKE ${"%" + query + "%"}
+         OR body_part ILIKE ${"%" + query + "%"}
+         OR target ILIKE ${"%" + query + "%"}
+      ORDER BY
+        CASE WHEN name ILIKE ${query + "%"} THEN 0 ELSE 1 END,
+        name ASC
+      LIMIT 15
+    `) as ExerciseResult[]
+  } catch (err) {
+    console.warn("Seeded exercise search failed; continuing with fallback/custom", err)
+  }
+
+  // Source 3: user-created custom exercises.
+  let customResults: ExerciseResult[] = []
+
+  try {
+    customResults = (await sql`
+      SELECT
+        id::text,
+        name,
+        muscle_group as "bodyPart",
+        muscle_group as target,
+        'custom' as source
+      FROM custom_exercises
+      WHERE user_id = ${userId}
+        AND (
+          name ILIKE ${"%" + query + "%"}
+          OR muscle_group ILIKE ${"%" + query + "%"}
+        )
+      ORDER BY
+        CASE WHEN name ILIKE ${query + "%"} THEN 0 ELSE 1 END,
+        name ASC
+      LIMIT 15
+    `) as ExerciseResult[]
+  } catch (err) {
+    console.warn("Custom exercise search failed; continuing with fallback/seeded", err)
+  }
+
+  const seenNames = new Set<string>()
+  const merged: ExerciseResult[] = []
+
+  // Priority:
+  // 1. custom user exercises
+  // 2. seeded DB exercises
+  // 3. fallback hardcoded exercises
+  //
+  // This keeps user-created exercises first, but still guarantees fallback coverage.
+  for (const exercise of [
+    ...customResults,
+    ...seededResults,
+    ...fallbackResults,
+  ]) {
+    const nameKey = normalizeName(exercise.name)
+
+    if (!nameKey || seenNames.has(nameKey)) {
+      continue
+    }
+
+    seenNames.add(nameKey)
+
+    merged.push({
+      id: exercise.id,
+      name: exercise.name,
+      bodyPart: exercise.bodyPart,
+      target: exercise.target,
+    })
+
+    if (merged.length >= 15) {
+      break
+    }
+  }
+
+  return NextResponse.json(merged)
 }
