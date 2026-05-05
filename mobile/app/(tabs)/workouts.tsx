@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons"
 import { useAuth } from "@clerk/clerk-expo"
 import * as Haptics from "expo-haptics"
 import { router } from "expo-router"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Modal,
@@ -23,6 +23,7 @@ import {
   setCachedActiveWorkoutForId,
 } from "@/lib/activeWorkoutCache"
 import {
+  createMobileTemplate,
   getMobileTemplates,
   setMobileNextTemplate,
   startMobileWorkout,
@@ -33,6 +34,15 @@ import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
 } from "@/types/workouts"
+
+const EMPTY_DATA: MobileTemplatesResponse = {
+  templates: [],
+  plan: {
+    lastPlanIndex: -1,
+    nextPlanIndex: -1,
+    nextTemplate: null,
+  },
+}
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
@@ -50,19 +60,66 @@ function formatExerciseCount(count: number) {
   return `${count} exercise${count === 1 ? "" : "s"}`
 }
 
+function normalizeTemplatesResponse(
+  response: MobileTemplatesResponse | null
+): MobileTemplatesResponse {
+  return {
+    templates: Array.isArray(response?.templates) ? response.templates : [],
+    plan: {
+      lastPlanIndex: response?.plan?.lastPlanIndex ?? -1,
+      nextPlanIndex: response?.plan?.nextPlanIndex ?? -1,
+      nextTemplate: response?.plan?.nextTemplate ?? null,
+    },
+  }
+}
+
+function sortPlanTemplates(templates: MobileWorkoutTemplate[]) {
+  return [...templates]
+    .filter((template) => template.in_plan)
+    .sort(
+      (a, b) =>
+        Number(a.plan_order ?? 9999) - Number(b.plan_order ?? 9999)
+    )
+}
+
 export default function WorkoutsScreen() {
   const { getToken } = useAuth()
 
   const [data, setData] = useState<MobileTemplatesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [startingTemplateId, setStartingTemplateId] = useState<string | null>(null)
+  const [startingTemplateId, setStartingTemplateId] = useState<string | null>(
+    null
+  )
   const [selectedTemplate, setSelectedTemplate] =
     useState<MobileWorkoutTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const localMutationAtRef = useRef(0)
+  const latestLoadStartedAtRef = useRef(0)
+
+  const currentData = useMemo(() => normalizeTemplatesResponse(data), [data])
+
+  const templates = useMemo(() => currentData.templates, [currentData.templates])
+
+  const planTemplates = useMemo(() => sortPlanTemplates(templates), [templates])
+
+  const otherTemplates = useMemo(
+    () => templates.filter((template) => !template.in_plan),
+    [templates]
+  )
+
+  const nextTemplate = currentData.plan.nextTemplate
+
+  const markLocalMutation = useCallback(() => {
+    localMutationAtRef.current = Date.now()
+  }, [])
+
   const loadTemplates = useCallback(
     async (isRefresh = false) => {
+      const requestStartedAt = Date.now()
+      latestLoadStartedAtRef.current = requestStartedAt
+
       try {
         if (isRefresh) {
           setRefreshing(true)
@@ -72,8 +129,19 @@ export default function WorkoutsScreen() {
 
         setError(null)
 
-        const templates = await getMobileTemplates(getToken)
-        setData(templates)
+        const templatesResponse = await getMobileTemplates(getToken)
+
+        const localChangedAfterRequest =
+          localMutationAtRef.current > requestStartedAt
+
+        const newerRequestStarted =
+          latestLoadStartedAtRef.current > requestStartedAt
+
+        if (localChangedAfterRequest || newerRequestStarted) {
+          return
+        }
+
+        setData(normalizeTemplatesResponse(templatesResponse))
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load workouts")
       } finally {
@@ -88,102 +156,197 @@ export default function WorkoutsScreen() {
     loadTemplates()
   }, [loadTemplates])
 
-  const planTemplates = useMemo(
-    () => data?.templates.filter((template) => template.in_plan) ?? [],
-    [data]
-  )
+  function getLastPlanIndexForNextFromPlan(
+    templateId: string,
+    plan: MobileWorkoutTemplate[]
+  ) {
+    const desiredIndex = plan.findIndex((template) => template.id === templateId)
 
-  const otherTemplates = useMemo(
-    () => data?.templates.filter((template) => !template.in_plan) ?? [],
-    [data]
-  )
+    if (desiredIndex === -1 || plan.length === 0) {
+      return currentData.plan.lastPlanIndex ?? -1
+    }
 
-  const nextTemplate = data?.plan.nextTemplate ?? null
+    return desiredIndex === 0 ? plan.length - 1 : desiredIndex - 1
+  }
 
-  function updateLocalNextTemplate(templateId: string, lastPlanIndex: number) {
+  function handleSetNextTemplate(template: MobileWorkoutTemplate) {
+    triggerLightHaptic()
+    markLocalMutation()
+
+    const previousData = data
+
     setData((current) => {
-      if (!current) return current
+      const safeCurrent = normalizeTemplatesResponse(current)
+      const safeTemplates = safeCurrent.templates
+      const safePlan = sortPlanTemplates(safeTemplates)
 
-      const nextTemplateValue =
-        current.templates.find((template) => template.id === templateId) ?? null
+      const freshTemplate =
+        safeTemplates.find((item) => item.id === template.id) ?? template
 
-      const nextPlanIndex = planTemplates.findIndex(
-        (template) => template.id === templateId
+      const optimisticLastPlanIndex = getLastPlanIndexForNextFromPlan(
+        template.id,
+        safePlan
+      )
+
+      const optimisticNextPlanIndex = safePlan.findIndex(
+        (item) => item.id === template.id
       )
 
       return {
-        ...current,
+        ...safeCurrent,
         plan: {
-          ...current.plan,
-          lastPlanIndex,
-          nextPlanIndex,
-          nextTemplate: nextTemplateValue,
+          lastPlanIndex: optimisticLastPlanIndex,
+          nextPlanIndex: optimisticNextPlanIndex,
+          nextTemplate: freshTemplate,
         },
+      }
+    })
+
+    setMobileNextTemplate(getToken, template.id).catch((err: unknown) => {
+      console.warn("Failed to set next workout", err)
+
+      if (previousData) {
+        setData(previousData)
       }
     })
   }
 
-  async function handleSetNextTemplate(template: MobileWorkoutTemplate) {
-    try {
-      triggerLightHaptic()
-      setError(null)
+  function handleAddToPlan(template: MobileWorkoutTemplate) {
+    triggerLightHaptic()
+    markLocalMutation()
 
-      const result = await setMobileNextTemplate(getToken, template.id)
-      updateLocalNextTemplate(template.id, result.last_plan_index)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to set next workout")
-    }
+    const previousData = data
+
+    setData((current) => {
+      const safeCurrent = normalizeTemplatesResponse(current)
+      const safeTemplates = safeCurrent.templates
+      const nextPlanOrder = sortPlanTemplates(safeTemplates).length
+
+      const nextTemplates = safeTemplates.map((item) =>
+        item.id === template.id
+          ? {
+              ...item,
+              in_plan: true,
+              plan_order: nextPlanOrder,
+            }
+          : item
+      )
+
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
+      const currentNextStillInPlan =
+        safeCurrent.plan.nextTemplate &&
+        nextPlanTemplates.some(
+          (item) => item.id === safeCurrent.plan.nextTemplate?.id
+        )
+
+      const nextTemplateValue = currentNextStillInPlan
+        ? safeCurrent.plan.nextTemplate
+        : nextPlanTemplates[0] ?? null
+
+      return {
+        ...safeCurrent,
+        templates: nextTemplates,
+        plan: {
+          ...safeCurrent.plan,
+          nextTemplate: nextTemplateValue,
+          nextPlanIndex: nextTemplateValue
+            ? nextPlanTemplates.findIndex(
+                (item) => item.id === nextTemplateValue.id
+              )
+            : -1,
+        },
+      }
+    })
+
+    updateMobileTemplatePlanStatus(getToken, template.id, {
+      in_plan: true,
+      plan_order: planTemplates.length,
+    }).catch((err: unknown) => {
+      console.warn("Failed to add to plan", err)
+
+      if (previousData) {
+        setData(previousData)
+      }
+    })
   }
 
-  async function handleAddToPlan(template: MobileWorkoutTemplate) {
-    try {
-      triggerLightHaptic()
-      setError(null)
+  function handleRemoveFromPlan(template: MobileWorkoutTemplate) {
+    triggerLightHaptic()
+    markLocalMutation()
 
-      await updateMobileTemplatePlanStatus(getToken, template.id, {
-        in_plan: true,
-        plan_order: planTemplates.length,
-      })
+    const previousData = data
 
-      await loadTemplates(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add to plan")
-    }
+    setData((current) => {
+      const safeCurrent = normalizeTemplatesResponse(current)
+
+      const nextTemplates = safeCurrent.templates.map((item) =>
+        item.id === template.id
+          ? {
+              ...item,
+              in_plan: false,
+              plan_order: null,
+            }
+          : item
+      )
+
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
+      const removedWasNext = safeCurrent.plan.nextTemplate?.id === template.id
+      const replacementNext = removedWasNext
+        ? nextPlanTemplates[0] ?? null
+        : safeCurrent.plan.nextTemplate
+
+      return {
+        ...safeCurrent,
+        templates: nextTemplates,
+        plan: {
+          ...safeCurrent.plan,
+          nextTemplate: replacementNext,
+          nextPlanIndex: replacementNext
+            ? nextPlanTemplates.findIndex(
+                (item) => item.id === replacementNext.id
+              )
+            : -1,
+        },
+      }
+    })
+
+    updateMobileTemplatePlanStatus(getToken, template.id, {
+      in_plan: false,
+      plan_order: null,
+    }).catch((err: unknown) => {
+      console.warn("Failed to remove from plan", err)
+
+      if (previousData) {
+        setData(previousData)
+      }
+    })
   }
 
-  async function handleRemoveFromPlan(template: MobileWorkoutTemplate) {
-    try {
-      triggerLightHaptic()
-      setError(null)
-
-      await updateMobileTemplatePlanStatus(getToken, template.id, {
-        in_plan: false,
-        plan_order: null,
-      })
-
-      await loadTemplates(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove from plan")
-    }
-  }
-
-  async function movePlanTemplate(template: MobileWorkoutTemplate, direction: -1 | 1) {
-    const currentIndex = planTemplates.findIndex((item) => item.id === template.id)
+  function movePlanTemplate(template: MobileWorkoutTemplate, direction: -1 | 1) {
+    const currentIndex = planTemplates.findIndex(
+      (item) => item.id === template.id
+    )
     const nextIndex = currentIndex + direction
 
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= planTemplates.length) {
       return
     }
 
+    triggerLightHaptic()
+    markLocalMutation()
+
+    const previousData = data
     const reordered = [...planTemplates]
     const [moved] = reordered.splice(currentIndex, 1)
     reordered.splice(nextIndex, 0, moved)
 
     setData((current) => {
-      if (!current) return current
+      const safeCurrent = normalizeTemplatesResponse(current)
 
-      const nextTemplates = current.templates.map((item) => {
-        const orderIndex = reordered.findIndex((planItem) => planItem.id === item.id)
+      const nextTemplates = safeCurrent.templates.map((item) => {
+        const orderIndex = reordered.findIndex(
+          (planItem) => planItem.id === item.id
+        )
 
         if (orderIndex === -1) return item
 
@@ -193,29 +356,79 @@ export default function WorkoutsScreen() {
         }
       })
 
+      const nextPlanTemplates = sortPlanTemplates(nextTemplates)
+      const nextTemplateValue = safeCurrent.plan.nextTemplate
+        ? nextPlanTemplates.find(
+            (item) => item.id === safeCurrent.plan.nextTemplate?.id
+          ) ?? null
+        : null
+
       return {
-        ...current,
+        ...safeCurrent,
         templates: nextTemplates,
+        plan: {
+          ...safeCurrent.plan,
+          nextTemplate: nextTemplateValue,
+          nextPlanIndex: nextTemplateValue
+            ? nextPlanTemplates.findIndex(
+                (item) => item.id === nextTemplateValue.id
+              )
+            : -1,
+        },
       }
     })
 
-    try {
-      await Promise.all(
-        reordered.map((item, index) =>
-          updateMobileTemplatePlanStatus(getToken, item.id, {
-            plan_order: index,
-          })
-        )
+    Promise.all(
+      reordered.map((item, index) =>
+        updateMobileTemplatePlanStatus(getToken, item.id, {
+          plan_order: index,
+        })
       )
+    ).catch((err: unknown) => {
+      console.warn("Failed to reorder plan", err)
 
-      await loadTemplates(true)
+      if (previousData) {
+        setData(previousData)
+      }
+    })
+  }
+
+  async function handleCreateTemplate() {
+    try {
+      triggerMediumHaptic()
+      markLocalMutation()
+
+      const template = await createMobileTemplate(getToken, "New Template")
+
+      setData((current) => {
+        const safeCurrent = normalizeTemplatesResponse(current)
+
+        return {
+          ...safeCurrent,
+          templates: [
+            {
+              ...template,
+              exercise_count: template.exercise_count ?? 0,
+              exercises: template.exercises ?? [],
+              lastSetsByExercise: template.lastSetsByExercise ?? {},
+            },
+            ...safeCurrent.templates,
+          ],
+        }
+      })
+
+      router.push({
+        pathname: "/template/[id]",
+        params: {
+          id: template.id,
+        },
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reorder plan")
-      await loadTemplates(true)
+      setError(err instanceof Error ? err.message : "Failed to create template")
     }
   }
 
-  async function handleStartWorkout(template: MobileWorkoutTemplate) {
+  function handleStartWorkout(template: MobileWorkoutTemplate) {
     if (startingTemplateId) return
 
     const draftWorkout = buildDraftWorkoutFromTemplate({
@@ -223,38 +436,31 @@ export default function WorkoutsScreen() {
       startedFromQueuedTemplate: template.id === nextTemplate?.id,
     })
 
-    try {
-      triggerMediumHaptic()
-      setError(null)
-      setSelectedTemplate(null)
-      setStartingTemplateId(template.id)
+    triggerMediumHaptic()
+    setError(null)
+    setSelectedTemplate(null)
+    setStartingTemplateId(template.id)
 
-      setCachedActiveWorkout(draftWorkout)
+    setCachedActiveWorkout(draftWorkout)
 
-      router.push({
-        pathname: "/workout/[id]",
-        params: {
-          id: draftWorkout.workout.id,
-        },
+    router.push({
+      pathname: "/workout/[id]",
+      params: {
+        id: draftWorkout.workout.id,
+      },
+    })
+
+    startMobileWorkout(getToken, template.id)
+      .then((realWorkout) => {
+        setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
+        setCachedActiveWorkout(realWorkout)
       })
-
-      startMobileWorkout(getToken, template.id)
-        .then((realWorkout) => {
-          setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
-          setCachedActiveWorkout(realWorkout)
-        })
-        .catch((err: unknown) => {
-          const message =
-            err instanceof Error ? err.message : "Failed to save workout"
-          setError(message)
-        })
-        .finally(() => {
-          setStartingTemplateId(null)
-        })
-    } catch (err) {
-      setStartingTemplateId(null)
-      setError(err instanceof Error ? err.message : "Failed to start workout")
-    }
+      .catch((err: unknown) => {
+        console.warn("Failed to save workout in background", err)
+      })
+      .finally(() => {
+        setStartingTemplateId(null)
+      })
   }
 
   function openTemplateActions(template: MobileWorkoutTemplate) {
@@ -317,9 +523,7 @@ export default function WorkoutsScreen() {
           </View>
 
           <View style={styles.templateCountPill}>
-            <Text style={styles.templateCountText}>
-              {data?.templates.length ?? 0}
-            </Text>
+            <Text style={styles.templateCountText}>{templates.length}</Text>
           </View>
         </View>
 
@@ -371,6 +575,17 @@ export default function WorkoutsScreen() {
             )}
           </Pressable>
         </FitCard>
+
+        <Pressable
+          onPress={handleCreateTemplate}
+          style={({ pressed }) => [
+            styles.createButton,
+            pressed ? styles.startButtonPressed : null,
+          ]}
+        >
+          <Ionicons name="add" size={19} color={colors.teal} />
+          <Text style={styles.createButtonText}>Create Template</Text>
+        </Pressable>
 
         <SectionTitle
           title="Workout plan"
@@ -755,7 +970,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    },
+  },
   startButtonPressed: {
     opacity: 0.82,
     transform: [{ scale: 0.985 }],
@@ -766,6 +981,22 @@ const styles = StyleSheet.create({
   startButtonText: {
     color: colors.background,
     fontSize: 16,
+    fontWeight: "900",
+  },
+  createButton: {
+    minHeight: 50,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  createButtonText: {
+    color: colors.teal,
+    fontSize: 15,
     fontWeight: "900",
   },
   sectionHeader: {
@@ -823,8 +1054,8 @@ const styles = StyleSheet.create({
   templateTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    },
+    gap: spacing.sm,
+  },
   templateName: {
     color: colors.text,
     fontSize: 16,
@@ -920,7 +1151,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: 8,
-    },
+  },
   modalPrimaryButtonText: {
     color: colors.background,
     fontSize: 16,
@@ -934,7 +1165,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: 8,
-    },
+  },
   modalSecondaryButtonText: {
     color: colors.text,
     fontSize: 16,

@@ -15,9 +15,14 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import { setCachedActiveWorkout } from "@/lib/activeWorkoutCache"
-import { getMobileHome, startMobileWorkout } from "@/lib/api"
+import {
+  setCachedActiveWorkout,
+  setCachedActiveWorkoutForId,
+} from "@/lib/activeWorkoutCache"
+import { getMobileHome, getMobileTemplates, startMobileWorkout } from "@/lib/api"
+import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
 import { MobileHomeResponse } from "@/types/home"
+import { MobileWorkoutTemplate } from "@/types/workouts"
 
 function getFirstName(name?: string | null) {
   if (!name) return "there"
@@ -28,6 +33,8 @@ export default function HomeScreen() {
   const { getToken } = useAuth()
 
   const [data, setData] = useState<MobileHomeResponse | null>(null)
+  const [preparedNextTemplate, setPreparedNextTemplate] =
+    useState<MobileWorkoutTemplate | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [startingWorkout, setStartingWorkout] = useState(false)
@@ -60,22 +67,103 @@ export default function HomeScreen() {
     loadHome()
   }, [loadHome])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function prefetchPreparedNextWorkout() {
+      try {
+        const templates = await getMobileTemplates(getToken)
+
+        if (cancelled) return
+
+        setPreparedNextTemplate(templates.plan.nextTemplate)
+      } catch (err) {
+        console.warn("Failed to prefetch next workout", err)
+      }
+    }
+
+    prefetchPreparedNextWorkout()
+
+    return () => {
+      cancelled = true
+    }
+  }, [getToken])
+
   async function handleStartNextWorkout() {
     if (startingWorkout) return
+
+    const templateToStart = preparedNextTemplate
+
+    if (!templateToStart) {
+      try {
+        setStartingWorkout(true)
+        setError(null)
+
+        const templates = await getMobileTemplates(getToken)
+        const prepared = templates.plan.nextTemplate
+
+        if (!prepared) {
+          setError("No next workout is ready. Add a template to your plan first.")
+          return
+        }
+
+        const draftWorkout = buildDraftWorkoutFromTemplate({
+          template: prepared,
+          startedFromQueuedTemplate: true,
+        })
+
+        setCachedActiveWorkout(draftWorkout)
+
+        router.push({
+          pathname: "/workout/[id]",
+          params: {
+            id: draftWorkout.workout.id,
+          },
+        })
+
+        startMobileWorkout(getToken, prepared.id)
+          .then((realWorkout) => {
+            setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
+            setCachedActiveWorkout(realWorkout)
+          })
+          .catch((err: unknown) => {
+            console.warn("Failed to save workout in background", err)
+          })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to start workout")
+      } finally {
+        setStartingWorkout(false)
+      }
+
+      return
+    }
 
     try {
       setStartingWorkout(true)
       setError(null)
 
-      const activeWorkout = await startMobileWorkout(getToken)
-      setCachedActiveWorkout(activeWorkout)
+      const draftWorkout = buildDraftWorkoutFromTemplate({
+        template: templateToStart,
+        startedFromQueuedTemplate: true,
+      })
+
+      setCachedActiveWorkout(draftWorkout)
 
       router.push({
         pathname: "/workout/[id]",
         params: {
-          id: activeWorkout.workout.id,
+          id: draftWorkout.workout.id,
         },
       })
+
+      startMobileWorkout(getToken, templateToStart.id)
+        .then((realWorkout) => {
+          setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
+          setCachedActiveWorkout(realWorkout)
+        })
+        .catch((err: unknown) => {
+          console.warn("Failed to save workout in background", err)
+        })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start workout")
     } finally {
@@ -114,7 +202,7 @@ export default function HomeScreen() {
 
   const latestProgress = progress?.events?.[0] ?? null
   const weeklyRecap = progress?.weeklyRecap ?? null
-  const nextTemplate = plan?.nextTemplate ?? null
+  const nextTemplate = preparedNextTemplate ?? plan?.nextTemplate ?? null
   const planStatus = plan?.status ?? null
 
   return (
