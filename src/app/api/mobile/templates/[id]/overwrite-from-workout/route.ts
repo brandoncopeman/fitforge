@@ -9,6 +9,17 @@ type IncomingExercise = {
   default_sets: number
   default_reps: number
   default_weight_kg: number
+  default_duration_minutes?: number | string | null
+  default_speed?: number | string | null
+  default_distance?: number | string | null
+  default_incline?: number | string | null
+}
+
+function toNumberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 export async function POST(
@@ -23,6 +34,7 @@ export async function POST(
 
   const { id: templateId } = await params
   const body = await req.json()
+
   const exercises = Array.isArray(body.exercises)
     ? (body.exercises as IncomingExercise[])
     : []
@@ -47,9 +59,7 @@ export async function POST(
   for (const exercise of exercises) {
     const exerciseName = String(exercise.exercise_name || "").trim()
 
-    if (!exerciseName) {
-      continue
-    }
+    if (!exerciseName) continue
 
     await sql`
       INSERT INTO template_exercises (
@@ -59,7 +69,11 @@ export async function POST(
         order_index,
         default_sets,
         default_reps,
-        default_weight_kg
+        default_weight_kg,
+        default_duration_minutes,
+        default_speed,
+        default_distance,
+        default_incline
       )
       VALUES (
         ${templateId},
@@ -68,7 +82,11 @@ export async function POST(
         ${Number(exercise.order_index ?? 0)},
         ${Math.max(1, Number(exercise.default_sets ?? 1))},
         ${Math.max(0, Number(exercise.default_reps ?? 0))},
-        ${Math.max(0, Number(exercise.default_weight_kg ?? 0))}
+        ${Math.max(0, Number(exercise.default_weight_kg ?? 0))},
+        ${toNumberOrNull(exercise.default_duration_minutes)},
+        ${toNumberOrNull(exercise.default_speed)},
+        ${toNumberOrNull(exercise.default_distance)},
+        ${toNumberOrNull(exercise.default_incline)}
       )
     `
   }
@@ -99,7 +117,11 @@ export async function POST(
       order_index,
       default_sets,
       default_reps,
-      default_weight_kg
+      default_weight_kg,
+      default_duration_minutes,
+      default_speed,
+      default_distance,
+      default_incline
     FROM template_exercises
     WHERE template_id = ${templateId}
     ORDER BY order_index ASC

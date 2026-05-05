@@ -7,13 +7,20 @@ export type MobileTemplateExercise = {
   default_sets: number | null
   default_reps: number | null
   default_weight_kg: number | string | null
+  default_duration_minutes?: number | string | null
+  default_speed?: number | string | null
+  default_distance?: number | string | null
+  default_incline?: number | string | null
 }
 
 export type MobileLastSet = {
-  exercise_name: string
   set_number: number
   weight_kg: number | string
-  reps: number
+  reps: number | string
+  duration_minutes?: number | string | null
+  speed?: number | string | null
+  distance?: number | string | null
+  incline?: number | string | null
 }
 
 export type MobileWorkoutTemplate = {

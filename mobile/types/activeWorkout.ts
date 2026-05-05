@@ -7,6 +7,10 @@ export type MobileExerciseSet = {
   created_at?: string
   completed?: boolean
   isTemp?: boolean
+  duration_minutes?: number | string | null
+speed?: number | string | null
+distance?: number | string | null
+incline?: number | string | null
 }
 
 export type MobileWorkoutExercise = {
@@ -20,7 +24,11 @@ export type MobileWorkoutExercise = {
   last_session?: {
     set_number: number
     weight_kg: number | string
-    reps: number
+    reps: number | string
+    duration_minutes?: number | string | null
+    speed?: number | string | null
+    distance?: number | string | null
+    incline?: number | string | null
   }[]
   isTemp?: boolean
 }
