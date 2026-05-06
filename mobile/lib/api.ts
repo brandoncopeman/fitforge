@@ -12,6 +12,11 @@ import {
   MobileProfileSettingsPatch,
 } from "@/types/profile"
 import {
+  MobileFoodEntry,
+  MobileFoodEntryPayload,
+  MobileRecentFood,
+} from "@/types/food"
+import {
   MobileTemplateExercise,
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -159,7 +164,68 @@ export async function updateMobileTemplatePlanStatus(
     body: JSON.stringify(body),
   })
 }
+export async function getMobileFoodEntries(
+  getToken: GetToken,
+  date: string
+): Promise<MobileFoodEntry[]> {
+  return apiFetch<MobileFoodEntry[]>(
+    `/api/food-entries?date=${encodeURIComponent(date)}`,
+    getToken
+  )
+}
 
+export async function createMobileFoodEntry(
+  getToken: GetToken,
+  body: MobileFoodEntryPayload
+): Promise<MobileFoodEntry> {
+  return apiFetch<MobileFoodEntry>("/api/food-entries", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateMobileFoodEntry(
+  getToken: GetToken,
+  entryId: string,
+  body: Omit<MobileFoodEntryPayload, "log_date">
+): Promise<MobileFoodEntry> {
+  return apiFetch<MobileFoodEntry>("/api/food-entries", getToken, {
+    method: "PATCH",
+    body: JSON.stringify({
+      id: entryId,
+      ...body,
+    }),
+  })
+}
+
+export async function deleteMobileFoodEntry(
+  getToken: GetToken,
+  entryId: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/api/food-entries?id=${encodeURIComponent(entryId)}`,
+    getToken,
+    {
+      method: "DELETE",
+    }
+  )
+}
+
+export async function getMobileRecentFoods(
+  getToken: GetToken
+): Promise<MobileRecentFood[]> {
+  return apiFetch<MobileRecentFood[]>("/api/recent-foods", getToken)
+}
+
+export async function saveMobileRecentFood(
+  getToken: GetToken,
+  body: Omit<MobileFoodEntryPayload, "meal_type" | "log_date">
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/recent-foods", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
 export async function addMobileTemplateExercise(
   getToken: GetToken,
   body: {
