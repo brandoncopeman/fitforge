@@ -18,7 +18,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import FitCard from "@/components/FitCard";
 import { colors, radius, spacing } from "@/constants/fitforgeTheme";
-import { deleteMobileWorkout, getMobileWorkoutHistoryItem } from "@/lib/api";
+import {
+  deleteMobileWorkout,
+  getMobileWorkoutHistoryItem,
+} from "@/lib/api"
+import { setCachedActiveWorkout } from "@/lib/activeWorkoutCache"
 import {
   MobileActiveWorkoutResponse,
   MobileExerciseSet,
@@ -49,7 +53,9 @@ function formatDateTime(value: string) {
     minute: "2-digit",
   });
 }
-
+function makeTempId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
 function formatDuration(minutes: number | null) {
   if (!minutes || minutes <= 0) return "—";
   return `${minutes} min`;
@@ -191,7 +197,76 @@ export default function WorkoutHistoryDetailScreen() {
       ]
     );
   }
-
+  function startWorkoutFromHistory() {
+    if (!data) return
+  
+    triggerMediumHaptic()
+  
+    const now = new Date().toISOString()
+    const draftWorkoutId = makeTempId("draft-workout")
+  
+    const draftWorkout = {
+      workout: {
+        id: draftWorkoutId,
+        user_id: data.workout.user_id,
+        name: data.workout.name || "Workout",
+        performed_at: now,
+        duration_minutes: null,
+        notes: null,
+        isTemp: true,
+      },
+      template: data.template,
+      exercises: exercises.map((exercise, exerciseIndex) => {
+        const newExerciseId = makeTempId("draft-exercise")
+  
+        const sortedSets = sortSets(exercise.sets ?? [])
+  
+        return {
+          id: newExerciseId,
+          workout_id: draftWorkoutId,
+          exercise_name: exercise.exercise_name,
+          exercise_external_id: exercise.exercise_external_id ?? null,
+          muscle_group: exercise.muscle_group,
+          order_index: exerciseIndex,
+          isTemp: true,
+          last_session: sortedSets.map((set) => ({
+            set_number: set.set_number,
+            weight_kg: set.weight_kg,
+            reps: set.reps,
+            duration_minutes: set.duration_minutes,
+            speed: set.speed,
+            distance: set.distance,
+            incline: set.incline,
+          })),
+          sets: sortedSets.map((set, setIndex) => ({
+            id: makeTempId("draft-set"),
+            workout_exercise_id: newExerciseId,
+            set_number: setIndex + 1,
+            reps: set.reps,
+            weight_kg: set.weight_kg,
+            duration_minutes: set.duration_minutes,
+            speed: set.speed,
+            distance: set.distance,
+            incline: set.incline,
+            completed: false,
+            isTemp: true,
+          })),
+        }
+      }),
+      startedFromTemplateId: undefined,
+      startedFromQueuedTemplate: false,
+      isDraft: true,
+    }
+  
+    setCachedActiveWorkout(draftWorkout)
+  
+    router.push({
+      pathname: "/workout/[id]",
+      params: {
+        id: draftWorkoutId,
+      },
+    })
+  }
   async function deleteWorkout() {
     if (!data || deleting) return;
 
@@ -284,22 +359,34 @@ export default function WorkoutHistoryDetailScreen() {
           </FitCard>
         ) : null}
 
-        <FitCard accent>
-          <Text style={styles.heroLabel}>Workout summary</Text>
+<FitCard accent>
+  <Text style={styles.heroLabel}>Workout summary</Text>
 
-          <View style={styles.summaryGrid}>
-            <SummaryTile label="Exercises" value={String(exercises.length)} />
-            <SummaryTile label="Sets" value={String(totalSets)} />
-            <SummaryTile
-              label="Volume"
-              value={`${Math.round(volume).toLocaleString()} kg`}
-            />
-            <SummaryTile
-              label="Duration"
-              value={formatDuration(data?.workout.duration_minutes ?? null)}
-            />
-          </View>
-        </FitCard>
+  <View style={styles.summaryGrid}>
+    <SummaryTile label="Exercises" value={String(exercises.length)} />
+    <SummaryTile label="Sets" value={String(totalSets)} />
+    <SummaryTile
+      label="Volume"
+      value={`${Math.round(volume).toLocaleString()} kg`}
+    />
+    <SummaryTile
+      label="Duration"
+      value={formatDuration(data?.workout.duration_minutes ?? null)}
+    />
+  </View>
+
+  <Pressable
+    onPress={startWorkoutFromHistory}
+    disabled={!data || exercises.length === 0}
+    style={[
+      styles.startHistoryButton,
+      (!data || exercises.length === 0) && styles.disabledButton,
+    ]}
+  >
+    <Ionicons name="play" size={20} color={colors.background} />
+    <Text style={styles.startHistoryButtonText}>Start This Workout</Text>
+  </Pressable>
+</FitCard>
 
         {exercises.length > 0 ? (
           <View style={styles.exerciseList}>
@@ -663,5 +750,20 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: "700",
+  },
+  startHistoryButton: {
+    height: 54,
+    borderRadius: radius.lg,
+    backgroundColor: colors.teal,
+    marginTop: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  startHistoryButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: "900",
   },
 });

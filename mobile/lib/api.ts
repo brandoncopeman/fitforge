@@ -5,6 +5,7 @@ import {
   MobileWorkoutExercise,
 } from "@/types/activeWorkout"
 import { MobileHomeResponse } from "@/types/home"
+import { MobileStatsResponse } from "@/types/stats"
 import {
   MobileTemplateExercise,
   MobileTemplatesResponse,
@@ -93,7 +94,11 @@ export async function createMobileTemplate(
     body: JSON.stringify({ name }),
   })
 }
-
+export async function getMobileStats(
+  getToken: GetToken
+): Promise<MobileStatsResponse> {
+  return apiFetch<MobileStatsResponse>("/api/mobile/stats", getToken)
+}
 export async function deleteMobileTemplate(
   getToken: GetToken,
   templateId: string
