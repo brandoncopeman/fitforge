@@ -11,6 +11,7 @@ import {
   MobileProfileResponse,
   MobileProfileSettingsPatch,
 } from "@/types/profile"
+import { MobileStepGoalResponse, MobileStepLog } from "@/types/steps"
 import {
   MobileFoodEntry,
   MobileFoodEntryPayload,
@@ -183,7 +184,46 @@ export async function getMobileFoodEntries(
     getToken
   )
 }
+export async function getMobileStepLogs(
+  getToken: GetToken
+): Promise<MobileStepLog[]> {
+  return apiFetch<MobileStepLog[]>("/api/steps", getToken)
+}
 
+export async function getMobileStepLogForDate(
+  getToken: GetToken,
+  date: string
+): Promise<MobileStepLog | null> {
+  return apiFetch<MobileStepLog | null>(
+    `/api/steps?date=${encodeURIComponent(date)}`,
+    getToken
+  )
+}
+
+export async function saveMobileStepLog(
+  getToken: GetToken,
+  body: {
+    steps: number
+    log_date: string
+  }
+): Promise<MobileStepLog> {
+  return apiFetch<MobileStepLog>("/api/steps", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateMobileStepGoal(
+  getToken: GetToken,
+  dailyStepTarget: number
+): Promise<MobileStepGoalResponse> {
+  return apiFetch<MobileStepGoalResponse>("/api/steps/goal", getToken, {
+    method: "PATCH",
+    body: JSON.stringify({
+      daily_step_target: dailyStepTarget,
+    }),
+  })
+}
 export async function createMobileFoodEntry(
   getToken: GetToken,
   body: MobileFoodEntryPayload
