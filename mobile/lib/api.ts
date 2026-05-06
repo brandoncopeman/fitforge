@@ -276,7 +276,10 @@ export async function getMobileWorkoutHistoryItem(
   getToken: GetToken,
   workoutId: string
 ): Promise<MobileActiveWorkoutResponse> {
-  return getMobileWorkout(getToken, workoutId)
+  return apiFetch<MobileActiveWorkoutResponse>(
+    `/api/mobile/workouts/${workoutId}`,
+    getToken
+  )
 }
 export async function deleteMobileWorkout(
   getToken: GetToken,
