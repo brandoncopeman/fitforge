@@ -5,11 +5,10 @@ import sql from "@/lib/db"
 type WorkoutHistoryRow = {
   id: string
   name: string | null
-  performed_at: string
+  created_at: string
   duration_minutes: number | string | null
   exercise_count: number | string | null
   set_count: number | string | null
-  completed_set_count: number | string | null
   volume: number | string | null
 }
 
@@ -29,11 +28,10 @@ export async function GET() {
     SELECT
       w.id,
       w.name,
-      w.performed_at,
+      w.created_at,
       w.duration_minutes,
       COUNT(DISTINCT we.id)::int AS exercise_count,
       COUNT(es.id)::int AS set_count,
-COUNT(es.id)::int AS completed_set_count,
       COALESCE(
         SUM(
           COALESCE(es.weight_kg, 0)::numeric *
@@ -47,21 +45,21 @@ COUNT(es.id)::int AS completed_set_count,
     WHERE w.user_id = ${userId}
       AND w.duration_minutes IS NOT NULL
     GROUP BY w.id
-    ORDER BY w.performed_at DESC
+    ORDER BY w.created_at DESC
     LIMIT 100
   `
 
   const workouts = (rows as WorkoutHistoryRow[]).map((workout) => ({
     id: workout.id,
     name: workout.name || "Workout",
-    performed_at: workout.performed_at,
+    performed_at: workout.created_at,
     duration_minutes:
       workout.duration_minutes === null || workout.duration_minutes === undefined
         ? null
         : toNumber(workout.duration_minutes),
     exercise_count: toNumber(workout.exercise_count),
     set_count: toNumber(workout.set_count),
-    completed_set_count: toNumber(workout.completed_set_count),
+    completed_set_count: toNumber(workout.set_count),
     volume: toNumber(workout.volume),
   }))
 

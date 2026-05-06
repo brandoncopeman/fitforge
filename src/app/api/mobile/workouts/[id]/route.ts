@@ -12,7 +12,7 @@ type WorkoutRow = {
   id: string
   user_id: string
   name: string | null
-  performed_at: string
+  created_at: string
   duration_minutes: number | string | null
   notes: string | null
 }
@@ -21,7 +21,6 @@ type WorkoutExerciseRow = {
   id: string
   workout_id: string
   exercise_name: string
-  exercise_external_id: string | null
   muscle_group: string | null
   order_index: number | string | null
 }
@@ -32,10 +31,10 @@ type ExerciseSetRow = {
   set_number: number | string
   reps: number | string | null
   weight_kg: number | string | null
-  duration_minutes: number | string | null
-  speed: number | string | null
-  distance: number | string | null
-  incline: number | string | null
+  duration_minutes?: number | string | null
+  speed?: number | string | null
+  distance?: number | string | null
+  incline?: number | string | null
   created_at: string
 }
 
@@ -65,7 +64,7 @@ export async function GET(_req: Request, context: Params) {
       id,
       user_id,
       name,
-      performed_at,
+      created_at,
       duration_minutes,
       notes
     FROM workouts
@@ -85,7 +84,6 @@ export async function GET(_req: Request, context: Params) {
       id,
       workout_id,
       exercise_name,
-      exercise_external_id,
       muscle_group,
       order_index
     FROM workout_exercises
@@ -132,7 +130,7 @@ export async function GET(_req: Request, context: Params) {
     id: exercise.id,
     workout_id: exercise.workout_id,
     exercise_name: exercise.exercise_name,
-    exercise_external_id: exercise.exercise_external_id,
+    exercise_external_id: null,
     muscle_group: exercise.muscle_group,
     order_index: toNumberOrNull(exercise.order_index),
     sets: (setsByExercise[exercise.id] ?? []).map((set) => ({
@@ -156,7 +154,7 @@ export async function GET(_req: Request, context: Params) {
       id: workout.id,
       user_id: workout.user_id,
       name: workout.name || "Workout",
-      performed_at: workout.performed_at,
+      performed_at: workout.created_at,
       duration_minutes: toNumberOrNull(workout.duration_minutes),
       notes: workout.notes,
     },
