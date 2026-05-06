@@ -7,6 +7,11 @@ import {
 import { MobileHomeResponse } from "@/types/home"
 import { MobileStatsResponse } from "@/types/stats"
 import {
+  MobileProfileCorePayload,
+  MobileProfileResponse,
+  MobileProfileSettingsPatch,
+} from "@/types/profile"
+import {
   MobileTemplateExercise,
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -84,7 +89,39 @@ export async function getMobileTemplates(
 ): Promise<MobileTemplatesResponse> {
   return apiFetch<MobileTemplatesResponse>("/api/mobile/templates", getToken)
 }
+export async function getMobileProfile(
+  getToken: GetToken
+): Promise<MobileProfileResponse> {
+  return apiFetch<MobileProfileResponse>("/api/profile", getToken)
+}
 
+export async function saveMobileProfileCore(
+  getToken: GetToken,
+  body: MobileProfileCorePayload
+): Promise<{
+  success: boolean
+  daily_calories: number
+  daily_protein: number
+}> {
+  return apiFetch<{
+    success: boolean
+    daily_calories: number
+    daily_protein: number
+  }>("/api/profile", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateMobileProfileSettings(
+  getToken: GetToken,
+  body: MobileProfileSettingsPatch
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/profile/settings", getToken, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
 export async function createMobileTemplate(
   getToken: GetToken,
   name = "New Template"
