@@ -5,73 +5,16 @@ import {
   MobileWorkoutExercise,
 } from "@/types/activeWorkout"
 import { MobileHomeResponse } from "@/types/home"
-import { MobileTemplatesResponse, MobileWorkoutTemplate } from "@/types/workouts"
-import { MobileTemplateExercise } from "@/types/workouts"
-
+import {
+  MobileTemplateExercise,
+  MobileTemplatesResponse,
+  MobileWorkoutTemplate,
+} from "@/types/workouts"
 
 const API_BASE_URL = "https://myfitforge.vercel.app"
 
 type GetToken = () => Promise<string | null>
-export async function addMobileTemplateExercise(
-  getToken: GetToken,
-  body: {
-    template_id: string
-    exercise_name: string
-    muscle_group?: string | null
-    order_index?: number
-    default_sets?: number
-    default_reps?: number
-    default_weight_kg?: number
-    default_duration_minutes?: number | null
-    default_speed?: number | null
-    default_distance?: number | null
-    default_incline?: number | null
-  }
-): Promise<MobileTemplateExercise> {
-  return apiFetch<MobileTemplateExercise>("/api/template-exercises", getToken, {
-    method: "POST",
-    body: JSON.stringify(body),
-  })
-}
 
-export async function updateMobileTemplateExercise(
-  getToken: GetToken,
-  templateExerciseId: string,
-  body: {
-    exercise_name?: string
-    muscle_group?: string | null
-    order_index?: number
-    default_sets?: number
-    default_reps?: number
-    default_weight_kg?: number
-    default_duration_minutes?: number | null
-    default_speed?: number | null
-    default_distance?: number | null
-    default_incline?: number | null
-  }
-): Promise<MobileTemplateExercise> {
-  return apiFetch<MobileTemplateExercise>(
-    `/api/template-exercises/${templateExerciseId}`,
-    getToken,
-    {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }
-  )
-}
-
-export async function deleteMobileTemplateExercise(
-  getToken: GetToken,
-  templateExerciseId: string
-): Promise<{ success: boolean }> {
-  return apiFetch<{ success: boolean }>(
-    `/api/template-exercises/${templateExerciseId}`,
-    getToken,
-    {
-      method: "DELETE",
-    }
-  )
-}
 export type MobileExerciseSearchResult = {
   id: string
   name: string
@@ -146,6 +89,135 @@ export async function createMobileTemplate(
   return apiFetch<MobileWorkoutTemplate>("/api/templates", getToken, {
     method: "POST",
     body: JSON.stringify({ name }),
+  })
+}
+
+export async function deleteMobileTemplate(
+  getToken: GetToken,
+  templateId: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/templates/${templateId}`, getToken, {
+    method: "DELETE",
+  })
+}
+
+export async function updateMobileTemplatePlanStatus(
+  getToken: GetToken,
+  templateId: string,
+  body: {
+    in_plan?: boolean
+    plan_order?: number | null
+    name?: string
+  }
+) {
+  return apiFetch(`/api/templates/${templateId}`, getToken, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function addMobileTemplateExercise(
+  getToken: GetToken,
+  body: {
+    template_id: string
+    exercise_name: string
+    muscle_group?: string | null
+    order_index?: number
+    default_sets?: number
+    default_reps?: number
+    default_weight_kg?: number
+    default_duration_minutes?: number | null
+    default_speed?: number | null
+    default_distance?: number | null
+    default_incline?: number | null
+  }
+): Promise<MobileTemplateExercise> {
+  return apiFetch<MobileTemplateExercise>("/api/template-exercises", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateMobileTemplateExercise(
+  getToken: GetToken,
+  templateExerciseId: string,
+  body: {
+    exercise_name?: string
+    muscle_group?: string | null
+    order_index?: number
+    default_sets?: number
+    default_reps?: number
+    default_weight_kg?: number
+    default_duration_minutes?: number | null
+    default_speed?: number | null
+    default_distance?: number | null
+    default_incline?: number | null
+  }
+): Promise<MobileTemplateExercise> {
+  return apiFetch<MobileTemplateExercise>(
+    `/api/template-exercises/${templateExerciseId}`,
+    getToken,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }
+  )
+}
+
+export async function deleteMobileTemplateExercise(
+  getToken: GetToken,
+  templateExerciseId: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/api/template-exercises/${templateExerciseId}`,
+    getToken,
+    {
+      method: "DELETE",
+    }
+  )
+}
+
+export async function overwriteMobileTemplateFromWorkout(
+  getToken: GetToken,
+  templateId: string,
+  exercises: {
+    exercise_name: string
+    muscle_group: string | null
+    order_index: number
+    default_sets: number
+    default_reps: number
+    default_weight_kg: number
+    default_duration_minutes?: number | string | null
+    default_speed?: number | string | null
+    default_distance?: number | string | null
+    default_incline?: number | string | null
+  }[]
+): Promise<MobileWorkoutTemplate> {
+  return apiFetch<MobileWorkoutTemplate>(
+    `/api/mobile/templates/${templateId}/overwrite-from-workout`,
+    getToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        exercises,
+      }),
+    }
+  )
+}
+
+export async function setMobileNextTemplate(
+  getToken: GetToken,
+  templateId: string
+) {
+  return apiFetch<{
+    success: boolean
+    next_template_id: string
+    last_plan_index: number
+  }>("/api/profile/set-next-template", getToken, {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: templateId,
+    }),
   })
 }
 
@@ -308,61 +380,4 @@ export async function getMobileExerciseLastSets(
     `/api/exercises/last-sets?name=${encodeURIComponent(exerciseName)}`,
     getToken
   )
-}
-
-export async function setMobileNextTemplate(
-  getToken: GetToken,
-  templateId: string
-) {
-  return apiFetch<{
-    success: boolean
-    next_template_id: string
-    last_plan_index: number
-  }>("/api/profile/set-next-template", getToken, {
-    method: "POST",
-    body: JSON.stringify({
-      template_id: templateId,
-    }),
-  })
-}
-export async function overwriteMobileTemplateFromWorkout(
-  getToken: GetToken,
-  templateId: string,
-  exercises: {
-    exercise_name: string
-    muscle_group: string | null
-    order_index: number
-    default_sets: number
-    default_reps: number
-    default_weight_kg: number
-    default_duration_minutes?: number | string | null
-    default_speed?: number | string | null
-    default_distance?: number | string | null
-    default_incline?: number | string | null
-  }[]
-): Promise<MobileWorkoutTemplate> {
-  return apiFetch<MobileWorkoutTemplate>(
-    `/api/mobile/templates/${templateId}/overwrite-from-workout`,
-    getToken,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        exercises,
-      }),
-    }
-  )
-}
-export async function updateMobileTemplatePlanStatus(
-  getToken: GetToken,
-  templateId: string,
-  body: {
-    in_plan?: boolean
-    plan_order?: number | null
-    name?: string
-  }
-) {
-  return apiFetch(`/api/templates/${templateId}`, getToken, {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  })
 }
