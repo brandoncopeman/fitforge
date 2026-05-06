@@ -4,6 +4,7 @@ import { router } from "expo-router"
 import { useCallback, useEffect, useState } from "react"
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,12 +12,7 @@ import {
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import {
-  getCachedHome,
-  getOrLoadHome,
-  setCachedHome,
-  subscribeToHomeCache,
-} from "@/lib/homeCache"
+
 import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
@@ -26,6 +22,12 @@ import {
 } from "@/lib/activeWorkoutCache"
 import { getMobileHome, getMobileTemplates, startMobileWorkout } from "@/lib/api"
 import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
+import {
+  getCachedHome,
+  getOrLoadHome,
+  setCachedHome,
+  subscribeToHomeCache,
+} from "@/lib/homeCache"
 import {
   getCachedTemplates,
   getOrLoadTemplates,
@@ -43,78 +45,78 @@ export default function HomeScreen() {
   const { getToken } = useAuth()
 
   const cachedTemplates = getCachedTemplates()
-const cachedHome = getCachedHome()
+  const cachedHome = getCachedHome()
 
-const [data, setData] = useState<MobileHomeResponse | null>(cachedHome)
-const [preparedNextTemplate, setPreparedNextTemplate] =
-  useState<MobileWorkoutTemplate | null>(
-    cachedTemplates?.plan.nextTemplate ?? null
+  const [data, setData] = useState<MobileHomeResponse | null>(cachedHome)
+  const [preparedNextTemplate, setPreparedNextTemplate] =
+    useState<MobileWorkoutTemplate | null>(
+      cachedTemplates?.plan.nextTemplate ?? null
+    )
+  const [loading, setLoading] = useState(!cachedHome)
+  const [refreshing, setRefreshing] = useState(false)
+  const [startingWorkout, setStartingWorkout] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadHome = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (isRefresh) {
+          setRefreshing(true)
+        } else {
+          setLoading(!getCachedHome())
+        }
+
+        setError(null)
+
+        const home = await getMobileHome(getToken)
+
+        setCachedHome(home)
+        setData(home)
+      } catch (err) {
+        console.warn("Failed to load home", err)
+
+        if (!getCachedHome()) {
+          setError(err instanceof Error ? err.message : "Failed to load home")
+        }
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [getToken]
   )
-const [loading, setLoading] = useState(!cachedHome)
-const [refreshing, setRefreshing] = useState(false)
-const [startingWorkout, setStartingWorkout] = useState(false)
-const [error, setError] = useState<string | null>(null)
 
-const loadHome = useCallback(
-  async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true)
-      } else {
-        setLoading(!getCachedHome())
-      }
+  useEffect(() => {
+    const cached = getCachedHome()
 
-      setError(null)
-
-      const home = await getMobileHome(getToken)
-
-      setCachedHome(home)
-      setData(home)
-    } catch (err) {
-      console.warn("Failed to load home", err)
-
-      if (!getCachedHome()) {
-        setError(err instanceof Error ? err.message : "Failed to load home")
-      }
-    } finally {
+    if (cached) {
+      setData(cached)
       setLoading(false)
-      setRefreshing(false)
     }
-  },
-  [getToken]
-)
 
-useEffect(() => {
-  const cached = getCachedHome()
-
-  if (cached) {
-    setData(cached)
-    setLoading(false)
-  }
-
-  const unsubscribe = subscribeToHomeCache((home) => {
-    setData(home)
-    setLoading(false)
-  })
-
-  getOrLoadHome(() => getMobileHome(getToken))
-    .then((home) => {
+    const unsubscribe = subscribeToHomeCache((home) => {
       setData(home)
       setLoading(false)
     })
-    .catch((err: unknown) => {
-      console.warn("Failed to warm home cache", err)
 
-      if (!getCachedHome()) {
-        setError(err instanceof Error ? err.message : "Failed to load home")
-      }
-    })
-    .finally(() => {
-      setLoading(false)
-    })
+    getOrLoadHome(() => getMobileHome(getToken))
+      .then((home) => {
+        setData(home)
+        setLoading(false)
+      })
+      .catch((err: unknown) => {
+        console.warn("Failed to warm home cache", err)
 
-  return unsubscribe
-}, [getToken])
+        if (!getCachedHome()) {
+          setError(err instanceof Error ? err.message : "Failed to load home")
+        }
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+
+    return unsubscribe
+  }, [getToken])
 
   useEffect(() => {
     const cached = getCachedTemplates()
@@ -148,7 +150,9 @@ useEffect(() => {
         setStartingWorkout(true)
         setError(null)
 
-        const templates = await getOrLoadTemplates(() => getMobileTemplates(getToken))
+        const templates = await getOrLoadTemplates(() =>
+          getMobileTemplates(getToken)
+        )
         const prepared = templates.plan.nextTemplate
 
         if (!prepared) {
@@ -293,8 +297,12 @@ useEffect(() => {
           <Text style={styles.welcome}>
             Welcome back, {getFirstName(profile?.display_name)}
           </Text>
-          <Text style={styles.quote}>“{profile?.daily_quote.text}”</Text>
-          <Text style={styles.quoteAuthor}>— {profile?.daily_quote.author}</Text>
+          <Text style={styles.quote}>
+            “{profile?.daily_quote?.text ?? "The work you do today compounds."}”
+          </Text>
+          <Text style={styles.quoteAuthor}>
+            — {profile?.daily_quote?.author ?? "FitForge"}
+          </Text>
         </FitCard>
 
         <FitCard accent onPress={handleStartNextWorkout}>
@@ -324,35 +332,73 @@ useEffect(() => {
         </FitCard>
 
         <View style={styles.tileRow}>
-          <StatTile
-            label="Calories"
-            value={dashboard?.caloriesConsumed ?? 0}
-            detail={`of ${profile?.daily_calorie_target ?? 0} kcal`}
-            accent
-          />
-          <StatTile
-            label="Steps"
-            value={(dashboard?.todaySteps ?? 0).toLocaleString()}
-            detail={`of ${(profile?.daily_step_target ?? 8000).toLocaleString()}`}
-          />
+          <Pressable
+            onPress={() => router.push("/(tabs)/food")}
+            style={({ pressed }) => [
+              styles.tilePressable,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <StatTile
+              label="Calories"
+              value={dashboard?.caloriesConsumed ?? 0}
+              detail={`of ${profile?.daily_calorie_target ?? 0} kcal`}
+              accent
+            />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/(tabs)/steps")}
+            style={({ pressed }) => [
+              styles.tilePressable,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <StatTile
+              label="Steps"
+              value={(dashboard?.todaySteps ?? 0).toLocaleString()}
+              detail={`of ${(
+                profile?.daily_step_target ?? 8000
+              ).toLocaleString()}`}
+            />
+          </Pressable>
         </View>
 
         <View style={styles.tileRow}>
-          <StatTile
-            label="Weight"
-            value={dashboard?.latestWeight ? `${dashboard.latestWeight}kg` : "—"}
-            detail="latest log"
-          />
-          <StatTile
-            label="Streak"
-            value={`${planStatus?.streakWeeks ?? 0}w`}
-            detail="workout streak"
-            accent
-          />
+          <Pressable
+            onPress={() => router.push("/(tabs)/profile")}
+            style={({ pressed }) => [
+              styles.tilePressable,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <StatTile
+              label="Weight"
+              value={
+                dashboard?.latestWeight ? `${dashboard.latestWeight}kg` : "—"
+              }
+              detail="latest log"
+            />
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/(tabs)/stats")}
+            style={({ pressed }) => [
+              styles.tilePressable,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <StatTile
+              label="Streak"
+              value={`${planStatus?.streakWeeks ?? 0}w`}
+              detail="workout streak"
+              accent
+            />
+          </Pressable>
         </View>
 
         {planStatus ? (
-          <FitCard onPress={() => router.push("/workouts")}>
+          <FitCard onPress={() => router.push("/(tabs)/workouts")}>
             <View style={styles.rowBetween}>
               <View style={styles.rowIconText}>
                 <View style={styles.iconBadge}>
@@ -365,13 +411,17 @@ useEffect(() => {
                 </View>
               </View>
 
-              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={colors.textMuted}
+              />
             </View>
           </FitCard>
         ) : null}
 
         {latestProgress ? (
-          <FitCard onPress={() => router.push("/stats")}>
+          <FitCard onPress={() => router.push("/(tabs)/stats")}>
             <Text style={styles.cardEyebrow}>Progress Story</Text>
             <Text style={styles.cardTitle}>
               {latestProgress.emoji ?? "✨"} {latestProgress.title}
@@ -381,7 +431,7 @@ useEffect(() => {
         ) : null}
 
         {weeklyRecap ? (
-          <FitCard onPress={() => router.push("/stats")}>
+          <FitCard onPress={() => router.push("/(tabs)/stats")}>
             <Text style={styles.cardEyebrow}>Weekly Recap</Text>
             <Text style={styles.cardTitle}>
               {weeklyRecap.emoji ?? "📅"} {weeklyRecap.title}
@@ -416,25 +466,37 @@ useEffect(() => {
         ) : null}
 
         <View style={styles.quickGrid}>
-          <FitCard style={styles.quickCard} onPress={() => router.push("/workouts")}>
+          <FitCard
+            style={styles.quickCard}
+            onPress={() => router.push("/(tabs)/workouts")}
+          >
             <Text style={styles.quickEmoji}>🏋️</Text>
             <Text style={styles.quickTitle}>Workouts</Text>
             <Text style={styles.quickDetail}>Templates & history</Text>
           </FitCard>
 
-          <FitCard style={styles.quickCard} onPress={() => router.push("/stats")}>
+          <FitCard
+            style={styles.quickCard}
+            onPress={() => router.push("/(tabs)/stats")}
+          >
             <Text style={styles.quickEmoji}>📈</Text>
             <Text style={styles.quickTitle}>Stats</Text>
             <Text style={styles.quickDetail}>Progress & badges</Text>
           </FitCard>
 
-          <FitCard style={styles.quickCard}>
+          <FitCard
+            style={styles.quickCard}
+            onPress={() => router.push("/(tabs)/food")}
+          >
             <Text style={styles.quickEmoji}>🥗</Text>
             <Text style={styles.quickTitle}>Food</Text>
-            <Text style={styles.quickDetail}>Coming soon</Text>
+            <Text style={styles.quickDetail}>Calories & macros</Text>
           </FitCard>
 
-          <FitCard style={styles.quickCard}>
+          <FitCard
+            style={styles.quickCard}
+            onPress={() => router.push("/(tabs)/stats")}
+          >
             <Text style={styles.quickEmoji}>🎯</Text>
             <Text style={styles.quickTitle}>Goals</Text>
             <Text style={styles.quickDetail}>Coming soon</Text>
@@ -492,6 +554,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     textAlign: "center",
+  },
+  pressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.985 }],
   },
   header: {
     marginTop: spacing.sm,
@@ -583,6 +649,9 @@ const styles = StyleSheet.create({
   tileRow: {
     flexDirection: "row",
     gap: spacing.md,
+  },
+  tilePressable: {
+    flex: 1,
   },
   rowBetween: {
     flexDirection: "row",
