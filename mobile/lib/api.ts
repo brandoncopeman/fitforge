@@ -10,7 +10,9 @@ import {
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
 } from "@/types/workouts"
-
+import {
+  MobileWorkoutHistoryResponse,
+} from "@/types/workoutHistory"
 const API_BASE_URL = "https://myfitforge.vercel.app"
 
 type GetToken = () => Promise<string | null>
@@ -261,7 +263,21 @@ export async function updateMobileWorkout(
     body: JSON.stringify(body),
   })
 }
+export async function getMobileWorkoutHistory(
+  getToken: GetToken
+): Promise<MobileWorkoutHistoryResponse> {
+  return apiFetch<MobileWorkoutHistoryResponse>(
+    "/api/mobile/workouts/history",
+    getToken
+  )
+}
 
+export async function getMobileWorkoutHistoryItem(
+  getToken: GetToken,
+  workoutId: string
+): Promise<MobileActiveWorkoutResponse> {
+  return getMobileWorkout(getToken, workoutId)
+}
 export async function deleteMobileWorkout(
   getToken: GetToken,
   workoutId: string

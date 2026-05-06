@@ -1,11 +1,11 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import * as Haptics from "expo-haptics"
-import { router, useLocalSearchParams } from "expo-router"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  InteractionManager,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,56 +15,63 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import FitCard from "@/components/FitCard"
-import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import FitCard from "@/components/FitCard";
+import { colors, radius, spacing } from "@/constants/fitforgeTheme";
 import {
   setCachedActiveWorkout,
   setCachedActiveWorkoutForId,
-} from "@/lib/activeWorkoutCache"
+} from "@/lib/activeWorkoutCache";
 import {
+  createMobileTemplate,
   getMobileTemplates,
   MobileExerciseSearchResult,
   overwriteMobileTemplateFromWorkout,
   searchMobileExercises,
   startMobileWorkout,
   updateMobileTemplatePlanStatus,
-} from "@/lib/api"
-import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
-import { getCachedTemplates } from "@/lib/templatesCache"
+} from "@/lib/api";
+import {
+  deleteDraftTemplate,
+  getDraftTemplate,
+  isDraftTemplateId,
+  setDraftTemplate,
+} from "@/lib/draftTemplateCache";
+import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout";
+import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache";
 import {
   MobileTemplateExercise,
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
-} from "@/types/workouts"
+} from "@/types/workouts";
 
-type SavingStatus = "idle" | "saving" | "saved" | "error"
-type TemplateExercisePatch = Partial<MobileTemplateExercise>
+type SavingStatus = "idle" | "draft" | "saving" | "saved" | "error";
+type TemplateExercisePatch = Partial<MobileTemplateExercise>;
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }
 }
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   }
 }
 
 function makeLocalId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function formatExerciseCount(count: number) {
-  return `${count} exercise${count === 1 ? "" : "s"}`
+  return `${count} exercise${count === 1 ? "" : "s"}`;
 }
 
 function normalizeTemplatesResponse(
-  response: MobileTemplatesResponse | null
+  response: MobileTemplatesResponse | null,
 ): MobileTemplatesResponse {
   return {
     templates: Array.isArray(response?.templates) ? response.templates : [],
@@ -73,18 +80,18 @@ function normalizeTemplatesResponse(
       nextPlanIndex: response?.plan?.nextPlanIndex ?? -1,
       nextTemplate: response?.plan?.nextTemplate ?? null,
     },
-  }
+  };
 }
 
 function sortTemplateExercises(exercises: MobileTemplateExercise[]) {
   return [...exercises].sort(
-    (a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0)
-  )
+    (a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0),
+  );
 }
 
 function isCardioTemplateExercise(exercise: MobileTemplateExercise) {
-  const name = exercise.exercise_name.toLowerCase()
-  const group = String(exercise.muscle_group || "").toLowerCase()
+  const name = exercise.exercise_name.toLowerCase();
+  const group = String(exercise.muscle_group || "").toLowerCase();
 
   return (
     group.includes("cardio") ||
@@ -96,14 +103,14 @@ function isCardioTemplateExercise(exercise: MobileTemplateExercise) {
     name.includes("elliptical") ||
     name.includes("stair") ||
     name.includes("jump rope")
-  )
+  );
 }
 
 function isCardioSearchResult(result: MobileExerciseSearchResult) {
-  const name = result.name.toLowerCase()
+  const name = result.name.toLowerCase();
   const group = String(
-    result.target || result.muscle_group || result.bodyPart || ""
-  ).toLowerCase()
+    result.target || result.muscle_group || result.bodyPart || "",
+  ).toLowerCase();
 
   return (
     group.includes("cardio") ||
@@ -115,52 +122,56 @@ function isCardioSearchResult(result: MobileExerciseSearchResult) {
     name.includes("elliptical") ||
     name.includes("stair") ||
     name.includes("jump rope")
-  )
+  );
 }
 
 function toNumber(value: unknown, fallback = 0) {
-  if (value === null || value === undefined || value === "") return fallback
+  if (value === null || value === undefined || value === "") return fallback;
 
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function normalizeDecimalInput(value: string) {
-  const cleaned = value.replace(",", ".").replace(/[^0-9.]/g, "")
-  const firstDotIndex = cleaned.indexOf(".")
+  const cleaned = value.replace(",", ".").replace(/[^0-9.]/g, "");
+  const firstDotIndex = cleaned.indexOf(".");
 
   if (firstDotIndex === -1) {
-    return cleaned
+    return cleaned;
   }
 
   return (
     cleaned.slice(0, firstDotIndex + 1) +
     cleaned.slice(firstDotIndex + 1).replace(/\./g, "")
-  )
+  );
 }
 
 function normalizeIntegerInput(value: string) {
-  return value.replace(/[^0-9]/g, "")
+  return value.replace(/[^0-9]/g, "");
 }
 
 function getTemplateFromCache(templateId: string) {
-  const cached = getCachedTemplates()
-  if (!cached) return null
+  if (isDraftTemplateId(templateId)) {
+    return getDraftTemplate(templateId);
+  }
 
-  const normalized = normalizeTemplatesResponse(cached)
+  const cached = getCachedTemplates();
+  if (!cached) return null;
+
+  const normalized = normalizeTemplatesResponse(cached);
 
   return (
     normalized.templates.find((template) => template.id === templateId) ??
     (normalized.plan.nextTemplate?.id === templateId
       ? normalized.plan.nextTemplate
       : null)
-  )
+  );
 }
 
 function buildTemplatePayload(template: MobileWorkoutTemplate) {
   return sortTemplateExercises(template.exercises ?? []).map(
     (exercise, index) => {
-      const cardio = isCardioTemplateExercise(exercise)
+      const cardio = isCardioTemplateExercise(exercise);
 
       return {
         exercise_name: exercise.exercise_name,
@@ -168,209 +179,347 @@ function buildTemplatePayload(template: MobileWorkoutTemplate) {
         order_index: index,
         default_sets: Math.max(1, toNumber(exercise.default_sets, 1)),
         default_reps: cardio ? 0 : toNumber(exercise.default_reps, 8),
-        default_weight_kg: cardio
-          ? 0
-          : toNumber(exercise.default_weight_kg, 0),
+        default_weight_kg: cardio ? 0 : toNumber(exercise.default_weight_kg, 0),
         default_duration_minutes: cardio
-          ? exercise.default_duration_minutes ?? 20
+          ? (exercise.default_duration_minutes ?? 20)
           : null,
-        default_speed: cardio ? exercise.default_speed ?? 0 : null,
-        default_distance: cardio ? exercise.default_distance ?? 0 : null,
-        default_incline: cardio ? exercise.default_incline ?? 0 : null,
-      }
-    }
-  )
+        default_speed: cardio ? (exercise.default_speed ?? 0) : null,
+        default_distance: cardio ? (exercise.default_distance ?? 0) : null,
+        default_incline: cardio ? (exercise.default_incline ?? 0) : null,
+      };
+    },
+  );
 }
 
 export default function TemplateDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
-  const { getToken } = useAuth()
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { getToken } = useAuth();
+  const isDraftTemplate = Boolean(id && isDraftTemplateId(id));
 
   const [template, setTemplate] = useState<MobileWorkoutTemplate | null>(() => {
-    if (!id) return null
-    return getTemplateFromCache(id)
-  })
+    if (!id) return null;
+    return getTemplateFromCache(id);
+  });
 
   const [loading, setLoading] = useState(() => {
-    if (!id) return false
-    return !getTemplateFromCache(id)
-  })
+    if (!id) return false;
+    return !getTemplateFromCache(id);
+  });
 
-  const [error, setError] = useState<string | null>(null)
-  const [savingStatus, setSavingStatus] = useState<SavingStatus>("idle")
-  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = useState<SavingStatus>(() =>
+    isDraftTemplate ? "draft" : "idle",
+  );
+  const [starting, setStarting] = useState(false);
 
-  const [showExerciseSearch, setShowExerciseSearch] = useState(false)
-  const [exerciseQuery, setExerciseQuery] = useState("")
+  const [showExerciseSearch, setShowExerciseSearch] = useState(false);
+  const [exerciseQuery, setExerciseQuery] = useState("");
   const [exerciseResults, setExerciseResults] = useState<
     MobileExerciseSearchResult[]
-  >([])
-  const [searchingExercises, setSearchingExercises] = useState(false)
+  >([]);
+  const [searchingExercises, setSearchingExercises] = useState(false);
 
-  const templateRef = useRef<MobileWorkoutTemplate | null>(template)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latestSaveStartedAtRef = useRef(0)
+  const templateRef = useRef<MobileWorkoutTemplate | null>(template);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSaveStartedAtRef = useRef(0);
+  const didInitialLoadRef = useRef(false);
+  const hasUnsavedChangesRef = useRef(false);
+  const saveTemplateNowRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
-    templateRef.current = template
-  }, [template])
+    templateRef.current = template;
+  }, [template]);
 
   const exercises = useMemo(() => {
-    return sortTemplateExercises(template?.exercises ?? [])
-  }, [template?.exercises])
+    return sortTemplateExercises(template?.exercises ?? []);
+  }, [template?.exercises]);
 
-  const exerciseCount = exercises.length
-
-  const applyTemplateToCaches = useCallback(
-    (_nextTemplate: MobileWorkoutTemplate) => {
-      // Intentionally do nothing from the template editor.
-      // This screen owns its local editing state and saves in the background.
-      // Updating shared caches from here can trigger Home/Workout tab state updates
-      // while this screen is rendering.
-    },
-    []
-  )
-
-    
+  const exerciseCount = exercises.length;
 
   const setTemplateOptimistic = useCallback(
     (updater: (current: MobileWorkoutTemplate) => MobileWorkoutTemplate) => {
-      const current = templateRef.current
-  
-      if (!current) return
-  
-      const next = updater(current)
-  
-      templateRef.current = next
-      setTemplate(next)
-  
-      // Defer shared cache updates so another subscribed screen is not updated
-      // during this screen's render/update cycle.
-      InteractionManager.runAfterInteractions(() => {
-        applyTemplateToCaches(next)
-      })
+      const current = templateRef.current;
+
+      if (!current) return;
+
+      const next = updater(current);
+
+      templateRef.current = next;
+      setTemplate(next);
     },
-    [applyTemplateToCaches]
-  )
+    [],
+  );
 
   const saveTemplateNow = useCallback(async () => {
-    const current = templateRef.current
-    if (!current) return
+    const current = templateRef.current;
+    if (!current) return;
 
-    const saveStartedAt = Date.now()
-    latestSaveStartedAtRef.current = saveStartedAt
+    if (isDraftTemplateId(current.id)) {
+      setDraftTemplate(current);
+      hasUnsavedChangesRef.current = true;
+      setSavingStatus("draft");
+      return;
+    }
 
-    setSavingStatus("saving")
+    const saveStartedAt = Date.now();
+    latestSaveStartedAtRef.current = saveStartedAt;
+
+    setSavingStatus("saving");
 
     try {
-      const payload = buildTemplatePayload(current)
+      const payload = buildTemplatePayload(current);
 
       await Promise.all([
         overwriteMobileTemplateFromWorkout(getToken, current.id, payload),
         updateMobileTemplatePlanStatus(getToken, current.id, {
           name: current.name,
         }),
-      ])
+      ]);
 
       if (latestSaveStartedAtRef.current !== saveStartedAt) {
-        return
+        return;
       }
 
-      setSavingStatus("saved")
+      hasUnsavedChangesRef.current = false;
+      setSavingStatus("saved");
     } catch (err) {
-      console.warn("Failed to save template", err)
+      console.warn("Failed to save template", err);
 
       if (latestSaveStartedAtRef.current === saveStartedAt) {
-        setSavingStatus("error")
+        setSavingStatus("error");
       }
     }
-  }, [getToken])
+  }, [getToken]);
+
+  useEffect(() => {
+    saveTemplateNowRef.current = saveTemplateNow;
+  }, [saveTemplateNow]);
 
   const scheduleSave = useCallback(() => {
-    setSavingStatus("saving")
+    hasUnsavedChangesRef.current = true;
+
+    const current = templateRef.current;
+
+    if (current && isDraftTemplateId(current.id)) {
+      setDraftTemplate(current);
+      setSavingStatus("draft");
+      return;
+    }
+
+    setSavingStatus("saving");
 
     if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
+      clearTimeout(saveTimerRef.current);
     }
 
     saveTimerRef.current = setTimeout(() => {
-      saveTemplateNow().catch((err: unknown) => {
-        console.warn("Failed to save template from debounce", err)
-      })
-    }, 750)
-  }, [saveTemplateNow])
+      saveTimerRef.current = null;
+
+      saveTemplateNowRef.current?.().catch((err: unknown) => {
+        console.warn("Failed to save template from debounce", err);
+      });
+    }, 250);
+  }, []);
 
   const loadTemplate = useCallback(async () => {
-    if (!id) return
+    if (!id || didInitialLoadRef.current) return;
 
-    const cachedTemplate = getTemplateFromCache(id)
+    didInitialLoadRef.current = true;
+
+    const cachedTemplate = getTemplateFromCache(id);
 
     if (cachedTemplate) {
-      templateRef.current = cachedTemplate
-      setTemplate(cachedTemplate)
-      setLoading(false)
-      setError(null)
+      templateRef.current = cachedTemplate;
+      setTemplate(cachedTemplate);
+      setSavingStatus(isDraftTemplateId(cachedTemplate.id) ? "draft" : "idle");
+      setLoading(false);
+      setError(null);
+      return;
+    }
 
-      // Critical: do not refetch and overwrite while editing.
-      return
+    if (isDraftTemplateId(id)) {
+      setError("Draft template not found");
+      setLoading(false);
+      return;
     }
 
     try {
-      setError(null)
-      setLoading(true)
+      setError(null);
+      setLoading(true);
 
-      const response = await getMobileTemplates(getToken)
-      const normalized = normalizeTemplatesResponse(response)
-      const foundTemplate = normalized.templates.find((item) => item.id === id)
+      const response = await getMobileTemplates(getToken);
+      const normalized = normalizeTemplatesResponse(response);
+      const foundTemplate = normalized.templates.find((item) => item.id === id);
 
       if (!foundTemplate) {
-        setError("Template not found")
-        return
+        setError("Template not found");
+        return;
       }
 
-      templateRef.current = foundTemplate
-      setTemplate(foundTemplate)
+      templateRef.current = foundTemplate;
+      setTemplate(foundTemplate);
     } catch (err) {
-      console.warn("Failed to load template", err)
+      console.warn("Failed to load template", err);
 
       if (!templateRef.current) {
-        setError(err instanceof Error ? err.message : "Failed to load template")
+        setError(
+          err instanceof Error ? err.message : "Failed to load template",
+        );
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [getToken, id])
+  }, [getToken, id]);
 
   useEffect(() => {
-    loadTemplate()
-  }, [loadTemplate])
+    didInitialLoadRef.current = false;
+    loadTemplate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+
+      if (
+        hasUnsavedChangesRef.current &&
+        templateRef.current &&
+        !isDraftTemplateId(templateRef.current.id)
+      ) {
+        saveTemplateNowRef.current?.().catch((err: unknown) => {
+          console.warn("Failed to flush template save on unmount", err);
+        });
       }
 
       if (searchTimerRef.current) {
-        clearTimeout(searchTimerRef.current)
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
       }
+    };
+  }, []);
+
+  function publishTemplateToWorkoutCache() {
+    const current = templateRef.current;
+    if (!current || isDraftTemplateId(current.id)) return;
+
+    const cached = normalizeTemplatesResponse(getCachedTemplates());
+
+    const finalizedTemplate: MobileWorkoutTemplate = {
+      ...current,
+      exercises: sortTemplateExercises(current.exercises ?? []),
+      exercise_count: current.exercises?.length ?? 0,
+    };
+
+    const templateExists = cached.templates.some(
+      (templateItem) => templateItem.id === finalizedTemplate.id,
+    );
+
+    const nextTemplates = templateExists
+      ? cached.templates.map((templateItem) =>
+          templateItem.id === finalizedTemplate.id
+            ? finalizedTemplate
+            : templateItem,
+        )
+      : [finalizedTemplate, ...cached.templates];
+
+    const nextTemplate =
+      cached.plan.nextTemplate?.id === finalizedTemplate.id
+        ? finalizedTemplate
+        : cached.plan.nextTemplate;
+
+    setCachedTemplates({
+      ...cached,
+      templates: nextTemplates,
+      plan: {
+        ...cached.plan,
+        nextTemplate,
+      },
+    });
+  }
+
+  function goBackToWorkouts() {
+    router.replace("/(tabs)/workouts");
+  }
+
+  function draftHasMeaningfulChanges(templateValue: MobileWorkoutTemplate) {
+    const nameChanged =
+      templateValue.name.trim().length > 0 &&
+      templateValue.name.trim() !== "New Template";
+
+    const hasExercises = (templateValue.exercises ?? []).length > 0;
+
+    return nameChanged || hasExercises || hasUnsavedChangesRef.current;
+  }
+
+  function handleBack() {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
-  }, [])
+
+    const current = templateRef.current;
+
+    if (current && isDraftTemplateId(current.id)) {
+      if (!draftHasMeaningfulChanges(current)) {
+        deleteDraftTemplate(current.id);
+        goBackToWorkouts();
+        return;
+      }
+
+      Alert.alert("Save template?", "You have an unsaved template draft.", [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            deleteDraftTemplate(current.id);
+            goBackToWorkouts();
+          },
+        },
+        {
+          text: "Save Template",
+          onPress: () => {
+            saveDraftTemplate().catch((err: unknown) => {
+              console.warn("Failed to save draft from back prompt", err);
+            });
+          },
+        },
+      ]);
+
+      return;
+    }
+
+    publishTemplateToWorkoutCache();
+
+    if (hasUnsavedChangesRef.current) {
+      saveTemplateNowRef.current?.().catch((err: unknown) => {
+        console.warn("Failed to save template before leaving", err);
+      });
+    }
+
+    goBackToWorkouts();
+  }
 
   function updateTemplateName(value: string) {
     setTemplateOptimistic((current) => ({
       ...current,
       name: value,
-    }))
+    }));
 
-    scheduleSave()
+    scheduleSave();
   }
 
   function updateExercise(
     exerciseId: string,
     patch: TemplateExercisePatch,
-    shouldSave = true
+    shouldSave = true,
   ) {
     setTemplateOptimistic((current) => {
       const nextExercises = sortTemplateExercises(current.exercises ?? []).map(
@@ -380,32 +529,32 @@ export default function TemplateDetailScreen() {
                 ...exercise,
                 ...patch,
               }
-            : exercise
-      )
+            : exercise,
+      );
 
       return {
         ...current,
         exercises: nextExercises,
         exercise_count: nextExercises.length,
-      }
-    })
+      };
+    });
 
     if (shouldSave) {
-      scheduleSave()
+      scheduleSave();
     }
   }
 
   function updateExerciseIntegerField(
     exerciseId: string,
     field: "default_sets" | "default_reps",
-    value: string
+    value: string,
   ) {
-    const cleaned = normalizeIntegerInput(value)
-    const numberValue = cleaned === "" ? 0 : Number(cleaned)
+    const cleaned = normalizeIntegerInput(value);
+    const numberValue = cleaned === "" ? 0 : Number(cleaned);
 
     updateExercise(exerciseId, {
       [field]: numberValue,
-    })
+    });
   }
 
   function updateExerciseDecimalField(
@@ -416,50 +565,50 @@ export default function TemplateDetailScreen() {
       | "default_speed"
       | "default_distance"
       | "default_incline",
-    value: string
+    value: string,
   ) {
     updateExercise(exerciseId, {
       [field]: normalizeDecimalInput(value),
-    } as TemplateExercisePatch)
+    } as TemplateExercisePatch);
   }
 
   function moveExercise(exerciseId: string, direction: -1 | 1) {
-    const current = templateRef.current
-    if (!current) return
-  
-    const sorted = sortTemplateExercises(current.exercises ?? [])
+    const current = templateRef.current;
+    if (!current) return;
+
+    const sorted = sortTemplateExercises(current.exercises ?? []);
     const currentIndex = sorted.findIndex(
-      (exercise) => exercise.id === exerciseId
-    )
-  
-    const nextIndex = currentIndex + direction
-  
+      (exercise) => exercise.id === exerciseId,
+    );
+
+    const nextIndex = currentIndex + direction;
+
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sorted.length) {
-      return
+      return;
     }
-  
-    triggerLightHaptic()
-  
-    const reordered = [...sorted]
-    const [moved] = reordered.splice(currentIndex, 1)
-    reordered.splice(nextIndex, 0, moved)
-  
+
+    triggerLightHaptic();
+
+    const reordered = [...sorted];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(nextIndex, 0, moved);
+
     const nextExercises = reordered.map((exercise, index) => ({
       ...exercise,
       order_index: index,
-    }))
-  
+    }));
+
     setTemplateOptimistic((templateValue) => ({
       ...templateValue,
       exercises: nextExercises,
       exercise_count: nextExercises.length,
-    }))
-  
-    scheduleSave()
+    }));
+
+    scheduleSave();
   }
 
   function removeExercise(exerciseId: string) {
-    triggerLightHaptic()
+    triggerLightHaptic();
 
     setTemplateOptimistic((current) => {
       const nextExercises = sortTemplateExercises(current.exercises ?? [])
@@ -467,26 +616,26 @@ export default function TemplateDetailScreen() {
         .map((exercise, index) => ({
           ...exercise,
           order_index: index,
-        }))
+        }));
 
       return {
         ...current,
         exercises: nextExercises,
         exercise_count: nextExercises.length,
-      }
-    })
+      };
+    });
 
-    scheduleSave()
+    scheduleSave();
   }
 
   function addExercise(result: MobileExerciseSearchResult) {
-    const current = templateRef.current
-    if (!current) return
+    const current = templateRef.current;
+    if (!current) return;
 
-    triggerMediumHaptic()
+    triggerMediumHaptic();
 
-    const cardio = isCardioSearchResult(result)
-    const exerciseIndex = current.exercises?.length ?? 0
+    const cardio = isCardioSearchResult(result);
+    const exerciseIndex = current.exercises?.length ?? 0;
 
     const newExercise: MobileTemplateExercise = {
       id: makeLocalId("local-template-exercise"),
@@ -503,7 +652,7 @@ export default function TemplateDetailScreen() {
       default_speed: cardio ? 0 : null,
       default_distance: cardio ? 0 : null,
       default_incline: cardio ? 0 : null,
-    }
+    };
 
     setTemplateOptimistic((templateValue) => {
       const nextExercises = [
@@ -512,90 +661,212 @@ export default function TemplateDetailScreen() {
       ].map((exercise, index) => ({
         ...exercise,
         order_index: index,
-      }))
+      }));
 
       return {
         ...templateValue,
         exercises: nextExercises,
         exercise_count: nextExercises.length,
-      }
-    })
+      };
+    });
 
-    setShowExerciseSearch(false)
-    setExerciseQuery("")
-    setExerciseResults([])
-    scheduleSave()
+    setShowExerciseSearch(false);
+    setExerciseQuery("");
+    setExerciseResults([]);
+    setSearchingExercises(false);
+    scheduleSave();
   }
 
   function handleExerciseSearchInput(value: string) {
-    setExerciseQuery(value)
+    setExerciseQuery(value);
 
     if (searchTimerRef.current) {
-      clearTimeout(searchTimerRef.current)
+      clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
     }
 
-    if (value.trim().length < 2) {
-      setExerciseResults([])
-      return
+    const trimmedValue = value.trim();
+
+    if (trimmedValue.length < 2) {
+      setSearchingExercises(false);
+      setExerciseResults([]);
+      return;
     }
+
+    setSearchingExercises(true);
 
     searchTimerRef.current = setTimeout(() => {
-      setSearchingExercises(true)
+      searchTimerRef.current = null;
 
-      searchMobileExercises(getToken, value.trim())
+      searchMobileExercises(getToken, trimmedValue)
         .then((results) => {
-          setExerciseResults(Array.isArray(results) ? results : [])
+          setExerciseResults(Array.isArray(results) ? results : []);
         })
         .catch((err: unknown) => {
-          console.warn("Failed to search exercises", err)
-          setExerciseResults([])
+          console.warn("Failed to search exercises", err);
+          setExerciseResults([]);
         })
         .finally(() => {
-          setSearchingExercises(false)
-        })
-    }, 300)
+          setSearchingExercises(false);
+        });
+    }, 250);
+  }
+
+  async function saveDraftTemplate() {
+    const current = templateRef.current;
+
+    if (
+      !current ||
+      !isDraftTemplateId(current.id) ||
+      savingStatus === "saving"
+    ) {
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    try {
+      triggerMediumHaptic();
+      setError(null);
+      setSavingStatus("saving");
+
+      const templateName = current.name.trim() || "New Template";
+      const createdTemplate = await createMobileTemplate(
+        getToken,
+        templateName,
+      );
+
+      const payload = buildTemplatePayload({
+        ...current,
+        id: createdTemplate.id,
+        exercises: sortTemplateExercises(current.exercises ?? []).map(
+          (exercise) => ({
+            ...exercise,
+            template_id: createdTemplate.id,
+          }),
+        ),
+      });
+
+      const savedTemplate = await overwriteMobileTemplateFromWorkout(
+        getToken,
+        createdTemplate.id,
+        payload,
+      );
+
+      const savedExercises =
+        savedTemplate.exercises && savedTemplate.exercises.length > 0
+          ? savedTemplate.exercises
+          : (current.exercises ?? []);
+
+      const finalizedTemplate: MobileWorkoutTemplate = {
+        ...createdTemplate,
+        ...savedTemplate,
+        id: createdTemplate.id,
+        name: savedTemplate.name || templateName,
+        in_plan: savedTemplate.in_plan ?? createdTemplate.in_plan ?? false,
+        plan_order:
+          savedTemplate.plan_order ?? createdTemplate.plan_order ?? null,
+        exercises: sortTemplateExercises(
+          savedExercises.map((exercise) => ({
+            ...exercise,
+            template_id: createdTemplate.id,
+          })),
+        ),
+        exercise_count:
+          savedTemplate.exercise_count ??
+          savedTemplate.exercises?.length ??
+          current.exercises?.length ??
+          0,
+        lastSetsByExercise:
+          savedTemplate.lastSetsByExercise ?? current.lastSetsByExercise ?? {},
+      };
+
+      const cached = normalizeTemplatesResponse(getCachedTemplates());
+
+      const nextTemplates = [
+        finalizedTemplate,
+        ...cached.templates.filter(
+          (item) => item.id !== finalizedTemplate.id && item.id !== current.id,
+        ),
+      ];
+
+      const nextTemplate =
+        cached.plan.nextTemplate?.id === finalizedTemplate.id ||
+        cached.plan.nextTemplate?.id === current.id
+          ? finalizedTemplate
+          : cached.plan.nextTemplate;
+
+      setCachedTemplates({
+        ...cached,
+        templates: nextTemplates,
+        plan: {
+          ...cached.plan,
+          nextTemplate,
+        },
+      });
+
+      deleteDraftTemplate(current.id);
+
+      hasUnsavedChangesRef.current = false;
+      templateRef.current = finalizedTemplate;
+      setTemplate(finalizedTemplate);
+      setSavingStatus("saved");
+
+      router.replace("/(tabs)/workouts");
+    } catch (err) {
+      console.warn("Failed to save draft template", err);
+      setSavingStatus("error");
+      setError(err instanceof Error ? err.message : "Failed to save template");
+    }
   }
 
   function startTemplateWorkout() {
-    const current = templateRef.current
-    if (!current || starting) return
+    const current = templateRef.current;
+    if (!current || starting || isDraftTemplateId(current.id)) return;
 
     if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
 
     const draftWorkout = buildDraftWorkoutFromTemplate({
       template: current,
       startedFromQueuedTemplate: false,
-    })
+    });
 
-    triggerMediumHaptic()
-    setStarting(true)
-    setCachedActiveWorkout(draftWorkout)
+    triggerMediumHaptic();
+    setStarting(true);
+    setCachedActiveWorkout(draftWorkout);
 
     router.push({
       pathname: "/workout/[id]",
       params: {
         id: draftWorkout.workout.id,
       },
-    })
+    });
 
-    saveTemplateNow()
+    saveTemplateNowRef
+      .current?.()
       .catch((err: unknown) => {
-        console.warn("Failed to save template before server workout start", err)
+        console.warn(
+          "Failed to save template before server workout start",
+          err,
+        );
       })
       .then(() => startMobileWorkout(getToken, current.id))
       .then((realWorkout) => {
-        setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
-        setCachedActiveWorkout(realWorkout)
+        setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout);
+        setCachedActiveWorkout(realWorkout);
       })
       .catch((err: unknown) => {
-        console.warn("Failed to start workout in background", err)
+        console.warn("Failed to start workout in background", err);
       })
       .finally(() => {
-        setStarting(false)
-      })
+        setStarting(false);
+      });
   }
 
   if (loading && !template) {
@@ -604,7 +875,7 @@ export default function TemplateDetailScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading template...</Text>
       </SafeAreaView>
-    )
+    );
   }
 
   if (error && !template) {
@@ -619,7 +890,7 @@ export default function TemplateDetailScreen() {
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    )
+    );
   }
 
   return (
@@ -629,29 +900,54 @@ export default function TemplateDetailScreen() {
         style={styles.keyboardView}
       >
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </Pressable>
 
           <View style={styles.topTitleBlock}>
-            <Text style={styles.topTitle}>Edit Template</Text>
+            <Text style={styles.topTitle}>
+              {isDraftTemplate ? "New Template" : "Edit Template"}
+            </Text>
             <Text style={styles.savingText}>
               {savingStatus === "saving"
-                ? "Saving..."
+                ? isDraftTemplate
+                  ? "Creating..."
+                  : "Saving..."
                 : savingStatus === "saved"
                   ? "Saved"
-                  : savingStatus === "error"
-                    ? "Save failed"
-                    : "Ready"}
+                  : savingStatus === "draft"
+                    ? "Draft"
+                    : savingStatus === "error"
+                      ? "Save failed"
+                      : "Ready"}
             </Text>
           </View>
 
+          {isDraftTemplate ? (
+            <Pressable
+              onPress={saveDraftTemplate}
+              disabled={!template || savingStatus === "saving"}
+              style={[
+                styles.topSaveButton,
+                (!template || savingStatus === "saving") &&
+                  styles.disabledButton,
+              ]}
+            >
+              {savingStatus === "saving" ? (
+                <ActivityIndicator color={colors.background} />
+              ) : (
+                <Text style={styles.topSaveButtonText}>Save</Text>
+              )}
+            </Pressable>
+          ) : null}
+
           <Pressable
             onPress={startTemplateWorkout}
-            disabled={!template || starting}
+            disabled={!template || starting || isDraftTemplate}
             style={[
               styles.topStartButton,
-              (!template || starting) && styles.disabledButton,
+              (!template || starting || isDraftTemplate) &&
+                styles.disabledButton,
             ]}
           >
             {starting ? (
@@ -689,26 +985,52 @@ export default function TemplateDetailScreen() {
               {formatExerciseCount(exerciseCount)}
             </Text>
             <Text style={styles.heroText}>
-              Edit defaults here. Starting a workout uses these values instantly.
+              Edit defaults here. Starting a workout uses these values
+              instantly.
             </Text>
 
-            <Pressable
-              onPress={startTemplateWorkout}
-              disabled={!template || starting}
-              style={[
-                styles.startButton,
-                (!template || starting) && styles.disabledButton,
-              ]}
-            >
-              {starting ? (
-                <ActivityIndicator color={colors.background} />
-              ) : (
-                <>
-                  <Ionicons name="play" size={20} color={colors.background} />
-                  <Text style={styles.startButtonText}>Start Workout</Text>
-                </>
-              )}
-            </Pressable>
+            {isDraftTemplate ? (
+              <Pressable
+                onPress={saveDraftTemplate}
+                disabled={!template || savingStatus === "saving"}
+                style={[
+                  styles.startButton,
+                  (!template || savingStatus === "saving") &&
+                    styles.disabledButton,
+                ]}
+              >
+                {savingStatus === "saving" ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={colors.background}
+                    />
+                    <Text style={styles.startButtonText}>Save Template</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={startTemplateWorkout}
+                disabled={!template || starting}
+                style={[
+                  styles.startButton,
+                  (!template || starting) && styles.disabledButton,
+                ]}
+              >
+                {starting ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <>
+                    <Ionicons name="play" size={20} color={colors.background} />
+                    <Text style={styles.startButtonText}>Start Workout</Text>
+                  </>
+                )}
+              </Pressable>
+            )}
           </FitCard>
 
           <View style={styles.exerciseList}>
@@ -751,14 +1073,20 @@ export default function TemplateDetailScreen() {
         results={exerciseResults}
         onChangeQuery={handleExerciseSearchInput}
         onClose={() => {
-          setShowExerciseSearch(false)
-          setExerciseQuery("")
-          setExerciseResults([])
+          if (searchTimerRef.current) {
+            clearTimeout(searchTimerRef.current);
+            searchTimerRef.current = null;
+          }
+
+          setShowExerciseSearch(false);
+          setExerciseQuery("");
+          setExerciseResults([]);
+          setSearchingExercises(false);
         }}
         onSelect={addExercise}
       />
     </SafeAreaView>
-  )
+  );
 }
 
 function TemplateExerciseCard({
@@ -771,16 +1099,16 @@ function TemplateExerciseCard({
   onUpdateInteger,
   onUpdateDecimal,
 }: {
-  exercise: MobileTemplateExercise
-  isFirst: boolean
-  isLast: boolean
-  onMoveUp: () => void
-  onMoveDown: () => void
-  onRemove: () => void
+  exercise: MobileTemplateExercise;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
   onUpdateInteger: (
     field: "default_sets" | "default_reps",
-    value: string
-  ) => void
+    value: string,
+  ) => void;
   onUpdateDecimal: (
     field:
       | "default_weight_kg"
@@ -788,10 +1116,10 @@ function TemplateExerciseCard({
       | "default_speed"
       | "default_distance"
       | "default_incline",
-    value: string
-  ) => void
+    value: string,
+  ) => void;
 }) {
-  const cardio = isCardioTemplateExercise(exercise)
+  const cardio = isCardioTemplateExercise(exercise);
 
   return (
     <FitCard style={styles.exerciseCard}>
@@ -916,7 +1244,7 @@ function TemplateExerciseCard({
         </View>
       )}
     </FitCard>
-  )
+  );
 }
 
 function TemplateNumberInput({
@@ -926,11 +1254,11 @@ function TemplateNumberInput({
   decimal,
   onChange,
 }: {
-  label: string
-  value: string
-  suffix?: string
-  decimal?: boolean
-  onChange: (value: string) => void
+  label: string;
+  value: string;
+  suffix?: string;
+  decimal?: boolean;
+  onChange: (value: string) => void;
 }) {
   return (
     <View style={styles.inputBox}>
@@ -948,7 +1276,7 @@ function TemplateNumberInput({
         {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
       </View>
     </View>
-  )
+  );
 }
 
 function ExerciseSearchModal({
@@ -960,13 +1288,13 @@ function ExerciseSearchModal({
   onClose,
   onSelect,
 }: {
-  visible: boolean
-  query: string
-  searching: boolean
-  results: MobileExerciseSearchResult[]
-  onChangeQuery: (value: string) => void
-  onClose: () => void
-  onSelect: (exercise: MobileExerciseSearchResult) => void
+  visible: boolean;
+  query: string;
+  searching: boolean;
+  results: MobileExerciseSearchResult[];
+  onChangeQuery: (value: string) => void;
+  onClose: () => void;
+  onSelect: (exercise: MobileExerciseSearchResult) => void;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -995,7 +1323,7 @@ function ExerciseSearchModal({
               </View>
             ) : null}
 
-            {!searching && query.length >= 2 && results.length === 0 ? (
+            {!searching && query.trim().length >= 2 && results.length === 0 ? (
               <Text style={styles.noResultsText}>No exercises found</Text>
             ) : null}
 
@@ -1024,7 +1352,7 @@ function ExerciseSearchModal({
         </View>
       </View>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1110,6 +1438,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.teal,
     alignItems: "center",
     justifyContent: "center",
+  },
+  topSaveButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    backgroundColor: colors.teal,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  topSaveButtonText: {
+    color: colors.background,
+    fontSize: 14,
+    fontWeight: "900",
   },
   disabledButton: {
     opacity: 0.55,
@@ -1365,4 +1706,4 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textTransform: "capitalize",
   },
-})
+});

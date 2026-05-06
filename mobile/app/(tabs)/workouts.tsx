@@ -23,13 +23,13 @@ import {
   setCachedActiveWorkoutForId,
 } from "@/lib/activeWorkoutCache"
 import {
-  createMobileTemplate,
   deleteMobileTemplate,
   getMobileTemplates,
   setMobileNextTemplate,
   startMobileWorkout,
   updateMobileTemplatePlanStatus,
 } from "@/lib/api"
+import { createDraftTemplate } from "@/lib/draftTemplateCache"
 import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
 import {
   getCachedTemplates,
@@ -468,37 +468,23 @@ export default function WorkoutsScreen() {
     })
   }
 
-  async function handleCreateTemplate() {
-    try {
-      triggerMediumHaptic()
-      markLocalMutation()
+  function handleCreateTemplate() {
+    triggerMediumHaptic()
+    markLocalMutation()
 
-      const template = await createMobileTemplate(getToken, "New Template")
+    const draftTemplate = createDraftTemplate()
 
-      setWorkoutDataOptimistic((current) => ({
-        ...current,
-        templates: [
-          {
-            ...template,
-            exercise_count: template.exercise_count ?? 0,
-            exercises: template.exercises ?? [],
-            lastSetsByExercise: template.lastSetsByExercise ?? {},
-          },
-          ...current.templates,
-        ],
-      }))
-
-      router.push({
-        pathname: "/template/[id]",
-        params: {
-          id: template.id,
-        },
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create template")
-    }
+    router.push({
+      pathname: "/template/[id]",
+      params: {
+        id: draftTemplate.id,
+      },
+    })
   }
-
+  function handleOpenHistory() {
+    triggerLightHaptic()
+    router.push("/workout-history/index")
+    }
   function handleStartWorkout(template: MobileWorkoutTemplate) {
     if (startingTemplateId) return
 
@@ -587,16 +573,29 @@ export default function WorkoutsScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Workout</Text>
-            <Text style={styles.subtitle}>Start or manage your plan.</Text>
-          </View>
+       <View style={styles.header}>
+  <View style={styles.headerTitleBlock}>
+    <Text style={styles.title}>Workout</Text>
+    <Text style={styles.subtitle}>Start or manage your plan.</Text>
+  </View>
 
-          <View style={styles.templateCountPill}>
-            <Text style={styles.templateCountText}>{templates.length}</Text>
-          </View>
-        </View>
+  <View style={styles.headerActions}>
+    <Pressable
+      onPress={handleOpenHistory}
+      style={({ pressed }) => [
+        styles.historyButton,
+        pressed ? styles.startButtonPressed : null,
+      ]}
+    >
+      <Ionicons name="time-outline" size={18} color={colors.teal} />
+      <Text style={styles.historyButtonText}>History</Text>
+    </Pressable>
+
+    <View style={styles.templateCountPill}>
+      <Text style={styles.templateCountText}>{templates.length}</Text>
+    </View>
+  </View>
+</View>
 
         {error ? (
           <FitCard>
@@ -1273,5 +1272,30 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 15,
     fontWeight: "800",
+  },
+  headerTitleBlock: {
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  historyButton: {
+    minHeight: 42,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+  },
+  historyButtonText: {
+    color: colors.teal,
+    fontSize: 13,
+    fontWeight: "900",
   },
 })

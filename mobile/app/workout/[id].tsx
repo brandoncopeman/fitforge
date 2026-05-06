@@ -28,7 +28,7 @@ import {
 } from "@/lib/activeWorkoutCache";
 import { getMobileWorkout } from "@/lib/api";
 import { getCachedTemplates, setCachedTemplates } from "@/lib/templatesCache";
-import { getCachedHome, setCachedHome } from "@/lib/homeCache"
+import { getCachedHome, setCachedHome } from "@/lib/homeCache";
 import {
   MobileActiveWorkoutResponse,
   MobileExerciseSet,
@@ -485,18 +485,17 @@ export default function ActiveWorkoutScreen() {
       current: MobileActiveWorkoutResponse
     ) => MobileActiveWorkoutResponse
   ) {
-    setData((current) => {
-      if (!current) return current;
-
-      const next = updater(cloneWorkout(current));
-      latestDataRef.current = next;
-
-      if (id) {
-        setCachedActiveWorkout(next);
-      }
-
-      return next;
-    });
+    const current = latestDataRef.current;
+    if (!current) return;
+  
+    const next = updater(cloneWorkout(current));
+  
+    latestDataRef.current = next;
+    setData(next);
+  
+    setTimeout(() => {
+      setCachedActiveWorkout(next);
+    }, 0);
   }
 
   function startRestTimer(seconds = restDuration) {
@@ -578,22 +577,21 @@ export default function ActiveWorkoutScreen() {
   }
 
   function updateEditingSetValue(field: "reps" | "weight_kg", value: string) {
-    setEditingSet((current) => {
-      if (!current) return current;
-
-      const parsedValue = value === "" ? "" : Number(value);
-
-      updateSetValue({
-        exerciseId: current.exerciseId,
-        setId: current.setId,
-        field,
-        value,
-      });
-
-      return {
-        ...current,
-        [field]: parsedValue,
-      };
+    const current = editingSet;
+    if (!current) return;
+  
+    const parsedValue = value === "" ? "" : Number(value);
+  
+    updateSetValue({
+      exerciseId: current.exerciseId,
+      setId: current.setId,
+      field,
+      value,
+    });
+  
+    setEditingSet({
+      ...current,
+      [field]: parsedValue,
     });
   }
 
@@ -647,26 +645,25 @@ export default function ActiveWorkoutScreen() {
     field: "reps" | "weight_kg",
     direction: -1 | 1
   ) {
-    setEditingSet((current) => {
-      if (!current) return current;
-
-      const currentValue = getSetNumberValue(current[field]);
-      const step = field === "weight_kg" ? 2.5 : 1;
-      const nextValue = Math.max(0, currentValue + direction * step);
-
-      triggerLightHaptic();
-
-      updateSetValue({
-        exerciseId: current.exerciseId,
-        setId: current.setId,
-        field,
-        value: String(nextValue),
-      });
-
-      return {
-        ...current,
-        [field]: nextValue,
-      };
+    const current = editingSet;
+    if (!current) return;
+  
+    const currentValue = getSetNumberValue(current[field]);
+    const step = field === "weight_kg" ? 2.5 : 1;
+    const nextValue = Math.max(0, currentValue + direction * step);
+  
+    triggerLightHaptic();
+  
+    updateSetValue({
+      exerciseId: current.exerciseId,
+      setId: current.setId,
+      field,
+      value: String(nextValue),
+    });
+  
+    setEditingSet({
+      ...current,
+      [field]: nextValue,
     });
   }
 
@@ -794,30 +791,44 @@ export default function ActiveWorkoutScreen() {
         incline: optimisticSet.incline,
       }),
     })
-      .then((createdSet) => {
-        updateWorkoutState((draft) => ({
-          ...draft,
-          exercises: draft.exercises.map((exercise) =>
-            exercise.id === exerciseId
-              ? {
-                  ...exercise,
-                  sets: exercise.sets.map((set) =>
-                    set.id === tempSetId
-                      ? {
-                          ...createdSet,
-                          completed: set.completed,
-                          isTemp: false,
-                        }
-                      : set
-                  ),
-                }
-              : exercise
-          ),
-        }));
-      })
-      .catch((err: unknown) => {
-        console.warn("Failed to add set", err);
-      });
+    .then((createdSet) => {
+      let setToSaveAfterSwap: MobileExerciseSet | null = null;
+    
+      updateWorkoutState((draft) => ({
+        ...draft,
+        exercises: draft.exercises.map((exercise) =>
+          exercise.id === exerciseId
+            ? {
+                ...exercise,
+                sets: exercise.sets.map((set) => {
+                  if (set.id !== tempSetId) return set;
+    
+                  const swappedSet: MobileExerciseSet = {
+                    ...createdSet,
+                    reps: set.reps,
+                    weight_kg: set.weight_kg,
+                    duration_minutes: set.duration_minutes,
+                    speed: set.speed,
+                    distance: set.distance,
+                    incline: set.incline,
+                    completed: set.completed,
+                    isTemp: false,
+                  };
+    
+                  setToSaveAfterSwap = swappedSet;
+                  return swappedSet;
+                }),
+              }
+            : exercise
+        ),
+      }));
+    
+      if (setToSaveAfterSwap) {
+        saveSetNow(setToSaveAfterSwap).catch((err: unknown) => {
+          console.warn("Failed to save edited set after backend swap", err);
+        });
+      }
+    })
   }
 
   function removeSet(exerciseId: string, setId: string) {
@@ -1092,27 +1103,47 @@ export default function ActiveWorkoutScreen() {
             incline: optimisticFirstSet.incline ?? null,
           }),
         })
-          .then((createdSet) => {
-            updateWorkoutState((draft) => ({
-              ...draft,
-              exercises: draft.exercises.map((exercise) =>
-                exercise.id === createdExercise.id
-                  ? {
-                      ...exercise,
-                      sets: exercise.sets.map((set) =>
-                        set.id === firstSetId
-                          ? {
-                              ...createdSet,
-                              completed: set.completed,
-                              isTemp: false,
-                            }
-                          : set
-                      ),
-                    }
-                  : exercise
-              ),
-            }))
-          })
+        .then((createdSet) => {
+          let setToSaveAfterSwap: MobileExerciseSet | null = null;
+        
+          updateWorkoutState((draft) => ({
+            ...draft,
+            exercises: draft.exercises.map((exercise) =>
+              exercise.id === createdExercise.id
+                ? {
+                    ...exercise,
+                    sets: exercise.sets.map((set) => {
+                      if (set.id !== firstSetId) return set;
+        
+                      const swappedSet: MobileExerciseSet = {
+                        ...createdSet,
+                        reps: set.reps,
+                        weight_kg: set.weight_kg,
+                        duration_minutes: set.duration_minutes,
+                        speed: set.speed,
+                        distance: set.distance,
+                        incline: set.incline,
+                        completed: set.completed,
+                        isTemp: false,
+                      };
+        
+                      setToSaveAfterSwap = swappedSet;
+                      return swappedSet;
+                    }),
+                  }
+                : exercise
+            ),
+          }));
+        
+          if (setToSaveAfterSwap) {
+            saveSetNow(setToSaveAfterSwap).catch((err: unknown) => {
+              console.warn(
+                "Failed to save edited first set after backend swap",
+                err
+              );
+            });
+          }
+        })
           .catch((err: unknown) => {
             console.warn("Failed to create first set for added exercise", err)
           })
