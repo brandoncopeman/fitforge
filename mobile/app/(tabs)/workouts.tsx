@@ -483,8 +483,11 @@ export default function WorkoutsScreen() {
   }
   function handleOpenHistory() {
     triggerLightHaptic()
-    router.push("/workout-history/index")
-    }
+  
+    router.push({
+      pathname: "/workout-history",
+    })
+  }
   function handleStartWorkout(template: MobileWorkoutTemplate) {
     if (startingTemplateId) return
 

@@ -1,8 +1,8 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import * as Haptics from "expo-haptics"
-import { router, useLocalSearchParams } from "expo-router"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,38 +13,31 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import FitCard from "@/components/FitCard"
-import { colors, radius, spacing } from "@/constants/fitforgeTheme"
-import {
-  deleteMobileWorkout,
-  getMobileWorkoutHistoryItem,
-} from "@/lib/api"
+import FitCard from "@/components/FitCard";
+import { colors, radius, spacing } from "@/constants/fitforgeTheme";
+import { deleteMobileWorkout, getMobileWorkoutHistoryItem } from "@/lib/api";
 import {
   MobileActiveWorkoutResponse,
   MobileExerciseSet,
   MobileWorkoutExercise,
-} from "@/types/activeWorkout"
+} from "@/types/activeWorkout";
 
-function triggerLightHaptic() {
-  if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-  }
-}
+
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   }
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value)
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Unknown date"
+    return "Unknown date";
   }
 
   return date.toLocaleString(undefined, {
@@ -54,24 +47,24 @@ function formatDateTime(value: string) {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  })
+  });
 }
 
 function formatDuration(minutes: number | null) {
-  if (!minutes || minutes <= 0) return "—"
-  return `${minutes} min`
+  if (!minutes || minutes <= 0) return "—";
+  return `${minutes} min`;
 }
 
 function getNumber(value: number | string | null | undefined) {
-  if (value === null || value === undefined || value === "") return 0
+  if (value === null || value === undefined || value === "") return 0;
 
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isCardioExercise(exercise: MobileWorkoutExercise) {
-  const name = exercise.exercise_name.toLowerCase()
-  const group = String(exercise.muscle_group || "").toLowerCase()
+  const name = exercise.exercise_name.toLowerCase();
+  const group = String(exercise.muscle_group || "").toLowerCase();
 
   return (
     group.includes("cardio") ||
@@ -83,7 +76,7 @@ function isCardioExercise(exercise: MobileWorkoutExercise) {
     name.includes("elliptical") ||
     name.includes("stair") ||
     name.includes("jump rope")
-  )
+  );
 }
 
 function calculateVolume(exercises: MobileWorkoutExercise[]) {
@@ -91,89 +84,96 @@ function calculateVolume(exercises: MobileWorkoutExercise[]) {
     return (
       total +
       exercise.sets.reduce((setTotal, set) => {
-        return setTotal + getNumber(set.weight_kg) * getNumber(set.reps)
+        return setTotal + getNumber(set.weight_kg) * getNumber(set.reps);
       }, 0)
-    )
-  }, 0)
+    );
+  }, 0);
 }
 
 function countSets(exercises: MobileWorkoutExercise[]) {
-  return exercises.reduce((total, exercise) => total + exercise.sets.length, 0)
+  return exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
 }
 
 function sortExercises(exercises: MobileWorkoutExercise[]) {
   return [...exercises].sort(
     (a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0)
-  )
+  );
 }
 
 function sortSets(sets: MobileExerciseSet[]) {
   return [...sets].sort(
     (a, b) => Number(a.set_number ?? 0) - Number(b.set_number ?? 0)
-  )
+  );
 }
 
 export default function WorkoutHistoryDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
-  const { getToken } = useAuth()
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { getToken } = useAuth();
 
-  const [data, setData] = useState<MobileActiveWorkoutResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [data, setData] = useState<MobileActiveWorkoutResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const exercises = useMemo(() => {
-    return sortExercises(data?.exercises ?? [])
-  }, [data?.exercises])
+    return sortExercises(data?.exercises ?? []);
+  }, [data?.exercises]);
 
-  const totalSets = useMemo(() => countSets(exercises), [exercises])
-  const volume = useMemo(() => calculateVolume(exercises), [exercises])
+  const totalSets = useMemo(() => countSets(exercises), [exercises]);
+  const volume = useMemo(() => calculateVolume(exercises), [exercises]);
 
   const loadWorkout = useCallback(
     async (isRefresh = false) => {
-      if (!id) return
-
+      if (!id) return;
+      if (id === "index") {
+        router.replace({
+          pathname: "/workout-history",
+        });
+        return;
+      }
       try {
         if (isRefresh) {
-          setRefreshing(true)
+          setRefreshing(true);
         } else {
-          setLoading(!data)
+          setLoading(!data);
         }
 
-        setError(null)
+        setError(null);
 
-        const response = await getMobileWorkoutHistoryItem(getToken, id)
-        setData(response)
+        const response = await getMobileWorkoutHistoryItem(getToken, id);
+        setData(response);
       } catch (err) {
-        console.warn("Failed to load workout detail", err)
-        setError(err instanceof Error ? err.message : "Failed to load workout")
+        console.warn("Failed to load workout detail", err);
+        setError(err instanceof Error ? err.message : "Failed to load workout");
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        setLoading(false);
+        setRefreshing(false);
       }
     },
     [data, getToken, id]
-  )
+  );
 
   useEffect(() => {
-    loadWorkout()
+    loadWorkout();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id]);
 
   function goBackToHistory() {
     if (router.canGoBack()) {
-      router.back()
-      return
+      router.back();
+      return;
     }
 
-    router.replace("/workout-history")
+    router.replace({
+      pathname: "/workout-history",
+    });
   }
 
   function confirmDeleteWorkout() {
-    if (!data || deleting) return
+    if (!data || deleting) return;
 
-    triggerMediumHaptic()
+    triggerMediumHaptic();
 
     Alert.alert(
       "Delete workout?",
@@ -189,23 +189,23 @@ export default function WorkoutHistoryDetailScreen() {
           onPress: deleteWorkout,
         },
       ]
-    )
+    );
   }
 
   async function deleteWorkout() {
-    if (!data || deleting) return
+    if (!data || deleting) return;
 
     try {
-      setDeleting(true)
-      setError(null)
+      setDeleting(true);
+      setError(null);
 
-      await deleteMobileWorkout(getToken, data.workout.id)
+      await deleteMobileWorkout(getToken, data.workout.id);
 
-      router.replace("/workout-history")
+      router.replace("/workout-history");
     } catch (err) {
-      console.warn("Failed to delete workout", err)
-      setError(err instanceof Error ? err.message : "Failed to delete workout")
-      setDeleting(false)
+      console.warn("Failed to delete workout", err);
+      setError(err instanceof Error ? err.message : "Failed to delete workout");
+      setDeleting(false);
     }
   }
 
@@ -215,7 +215,7 @@ export default function WorkoutHistoryDetailScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading workout...</Text>
       </SafeAreaView>
-    )
+    );
   }
 
   if (error && !data) {
@@ -230,7 +230,7 @@ export default function WorkoutHistoryDetailScreen() {
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    )
+    );
   }
 
   return (
@@ -319,7 +319,7 @@ export default function WorkoutHistoryDetailScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
-  )
+  );
 }
 
 function SummaryTile({ label, value }: { label: string; value: string }) {
@@ -328,12 +328,16 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
       <Text style={styles.summaryValue}>{value}</Text>
       <Text style={styles.summaryLabel}>{label}</Text>
     </View>
-  )
+  );
 }
 
-function ExerciseHistoryCard({ exercise }: { exercise: MobileWorkoutExercise }) {
-  const cardio = isCardioExercise(exercise)
-  const sets = sortSets(exercise.sets ?? [])
+function ExerciseHistoryCard({
+  exercise,
+}: {
+  exercise: MobileWorkoutExercise;
+}) {
+  const cardio = isCardioExercise(exercise);
+  const sets = sortSets(exercise.sets ?? []);
 
   return (
     <FitCard style={styles.exerciseCard}>
@@ -364,7 +368,7 @@ function ExerciseHistoryCard({ exercise }: { exercise: MobileWorkoutExercise }) 
         <Text style={styles.emptySetText}>No sets saved.</Text>
       )}
     </FitCard>
-  )
+  );
 }
 
 function StrengthHistorySet({ set }: { set: MobileExerciseSet }) {
@@ -380,7 +384,7 @@ function StrengthHistorySet({ set }: { set: MobileExerciseSet }) {
         <View style={styles.setStatusSpacer} />
       )}
     </View>
-  )
+  );
 }
 
 function CardioHistorySet({ set }: { set: MobileExerciseSet }) {
@@ -395,12 +399,15 @@ function CardioHistorySet({ set }: { set: MobileExerciseSet }) {
 
       <View style={styles.cardioGrid}>
         <MiniStat label="Speed" value={String(getNumber(set.speed))} />
-        <MiniStat label="Time" value={`${getNumber(set.duration_minutes)} min`} />
+        <MiniStat
+          label="Time"
+          value={`${getNumber(set.duration_minutes)} min`}
+        />
         <MiniStat label="Distance" value={`${getNumber(set.distance)} km`} />
         <MiniStat label="Incline" value={`${getNumber(set.incline)}%`} />
       </View>
     </View>
-  )
+  );
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
@@ -409,7 +416,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
       <Text style={styles.miniStatValue}>{value}</Text>
       <Text style={styles.miniStatLabel}>{label}</Text>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -657,4 +664,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-})
+});
