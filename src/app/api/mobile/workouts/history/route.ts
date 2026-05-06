@@ -33,7 +33,7 @@ export async function GET() {
       w.duration_minutes,
       COUNT(DISTINCT we.id)::int AS exercise_count,
       COUNT(es.id)::int AS set_count,
-      COUNT(es.id) FILTER (WHERE COALESCE(es.completed, false) = true)::int AS completed_set_count,
+COUNT(es.id)::int AS completed_set_count,
       COALESCE(
         SUM(
           COALESCE(es.weight_kg, 0)::numeric *

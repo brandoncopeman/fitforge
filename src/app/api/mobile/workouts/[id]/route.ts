@@ -37,7 +37,6 @@ type ExerciseSetRow = {
   distance: number | string | null
   incline: number | string | null
   created_at: string
-  completed?: boolean | null
 }
 
 function toNumberOrNull(value: unknown) {
@@ -111,8 +110,7 @@ export async function GET(_req: Request, context: Params) {
             speed,
             distance,
             incline,
-            created_at,
-            completed
+            created_at
           FROM exercise_sets
           WHERE workout_exercise_id = ANY(${workoutExerciseIds})
           ORDER BY set_number ASC, created_at ASC
@@ -148,7 +146,7 @@ export async function GET(_req: Request, context: Params) {
       distance: toNumberOrNull(set.distance),
       incline: toNumberOrNull(set.incline),
       created_at: set.created_at,
-      completed: Boolean(set.completed),
+      completed: false,
     })),
     last_session: [],
   }))
