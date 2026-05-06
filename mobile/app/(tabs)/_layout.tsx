@@ -74,7 +74,19 @@ export default function TabLayout() {
           ),
         }}
       />
-
+<Tabs.Screen
+  name="food"
+  options={{
+    title: "Food",
+    tabBarIcon: ({ color, focused }) => (
+      <Ionicons
+        name={focused ? "nutrition" : "nutrition-outline"}
+        size={22}
+        color={color}
+      />
+    ),
+  }}
+/>
       <Tabs.Screen
         name="workouts"
         options={{

@@ -14,6 +14,7 @@ import {
 import {
   MobileFoodEntry,
   MobileFoodEntryPayload,
+  MobileFoodSearchResult,
   MobileRecentFood,
 } from "@/types/food"
 import {
@@ -126,6 +127,15 @@ export async function updateMobileProfileSettings(
     method: "PATCH",
     body: JSON.stringify(body),
   })
+}
+export async function searchMobileFoods(
+  getToken: GetToken,
+  query: string
+): Promise<MobileFoodSearchResult[]> {
+  return apiFetch<MobileFoodSearchResult[]>(
+    `/api/food-search?q=${encodeURIComponent(query)}`,
+    getToken
+  )
 }
 export async function createMobileTemplate(
   getToken: GetToken,

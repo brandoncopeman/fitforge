@@ -27,7 +27,17 @@ export type MobileRecentFood = {
   last_used?: string
   use_count?: number | string
 }
-
+export type MobileFoodSearchResult = {
+    id: string
+    name: string
+    brand?: string | null
+    calories: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    serving_grams: number
+    per100g: boolean
+  }
 export type MobileFoodEntryPayload = {
   food_name: string
   calories: number

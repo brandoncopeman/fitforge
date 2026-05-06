@@ -28,16 +28,22 @@ import {
   getMobileProfile,
   getMobileRecentFoods,
   saveMobileRecentFood,
+  searchMobileFoods,
   updateMobileFoodEntry,
 } from "@/lib/api"
 import {
   MealType,
   MobileFoodEntry,
   MobileFoodEntryPayload,
+  MobileFoodSearchResult,
   MobileRecentFood,
 } from "@/types/food"
 
-const MEALS: { key: MealType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+const MEALS: {
+  key: MealType
+  label: string
+  icon: keyof typeof Ionicons.glyphMap
+}[] = [
   { key: "breakfast", label: "Breakfast", icon: "sunny-outline" },
   { key: "lunch", label: "Lunch", icon: "restaurant-outline" },
   { key: "dinner", label: "Dinner", icon: "moon-outline" },
@@ -53,6 +59,20 @@ type FoodFormState = {
   protein_g: string
   carbs_g: string
   fat_g: string
+}
+
+type SearchResultLike = MobileFoodSearchResult & {
+  name?: string
+  food_name?: string
+  brand?: string | null
+  calories?: number
+  protein_g?: number
+  carbs_g?: number
+  fat_g?: number
+  calories_100g?: number
+  protein_100g?: number
+  carbs_100g?: number
+  fat_100g?: number
 }
 
 function triggerLightHaptic() {
@@ -138,6 +158,26 @@ function formatCalories(value: unknown) {
   return `${Math.round(toNumber(value, 0)).toLocaleString()}`
 }
 
+function getSearchName(result: SearchResultLike) {
+  return result.name || result.food_name || "Food"
+}
+
+function getSearchCalories(result: SearchResultLike) {
+  return toNumber(result.calories ?? result.calories_100g, 0)
+}
+
+function getSearchProtein(result: SearchResultLike) {
+  return toNumber(result.protein_g ?? result.protein_100g, 0)
+}
+
+function getSearchCarbs(result: SearchResultLike) {
+  return toNumber(result.carbs_g ?? result.carbs_100g, 0)
+}
+
+function getSearchFat(result: SearchResultLike) {
+  return toNumber(result.fat_g ?? result.fat_100g, 0)
+}
+
 function emptyForm(meal: MealType = "snack"): FoodFormState {
   return {
     food_name: "",
@@ -181,7 +221,10 @@ function recentToForm(food: MobileRecentFood, meal: MealType): FoodFormState {
   }
 }
 
-function formToPayload(form: FoodFormState, date: string): MobileFoodEntryPayload {
+function formToPayload(
+  form: FoodFormState,
+  date: string
+): MobileFoodEntryPayload {
   return {
     food_name: form.food_name.trim() || "Food",
     calories: Math.max(0, toNumber(form.calories, 0)),
@@ -214,11 +257,26 @@ export default function FoodScreen() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FoodFormState>(() => emptyForm("snack"))
 
+  const [foodSearchResults, setFoodSearchResults] = useState<
+    SearchResultLike[]
+  >([])
+  const [searchingFoods, setSearchingFoods] = useState(false)
+
   const latestEntriesRef = useRef<MobileFoodEntry[]>([])
+  const foodSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     latestEntriesRef.current = entries
   }, [entries])
+
+  useEffect(() => {
+    return () => {
+      if (foodSearchTimerRef.current) {
+        clearTimeout(foodSearchTimerRef.current)
+        foodSearchTimerRef.current = null
+      }
+    }
+  }, [])
 
   const totals = useMemo(() => {
     return entries.reduce(
@@ -238,15 +296,18 @@ export default function FoodScreen() {
   }, [entries])
 
   const entriesByMeal = useMemo(() => {
-    return MEALS.reduce<Record<MealType, MobileFoodEntry[]>>((map, meal) => {
-      map[meal.key] = entries.filter((entry) => entry.meal_type === meal.key)
-      return map
-    }, {
-      breakfast: [],
-      lunch: [],
-      dinner: [],
-      snack: [],
-    })
+    return MEALS.reduce<Record<MealType, MobileFoodEntry[]>>(
+      (map, meal) => {
+        map[meal.key] = entries.filter((entry) => entry.meal_type === meal.key)
+        return map
+      },
+      {
+        breakfast: [],
+        lunch: [],
+        dinner: [],
+        snack: [],
+      }
+    )
   }, [entries])
 
   const loadFoodData = useCallback(
@@ -299,24 +360,101 @@ export default function FoodScreen() {
   function openAddFood(meal: MealType = "snack") {
     triggerMediumHaptic()
     setForm(emptyForm(meal))
+    setFoodSearchResults([])
+    setSearchingFoods(false)
     setShowForm(true)
   }
 
   function openEditFood(entry: MobileFoodEntry) {
     triggerLightHaptic()
     setForm(entryToForm(entry))
+    setFoodSearchResults([])
+    setSearchingFoods(false)
     setShowForm(true)
   }
 
   function openRecentFood(food: MobileRecentFood) {
     triggerLightHaptic()
     setForm(recentToForm(food, "snack"))
+    setFoodSearchResults([])
+    setSearchingFoods(false)
     setShowForm(true)
   }
 
   function closeForm() {
     setShowForm(false)
     setSaving(false)
+    setFoodSearchResults([])
+    setSearchingFoods(false)
+
+    if (foodSearchTimerRef.current) {
+      clearTimeout(foodSearchTimerRef.current)
+      foodSearchTimerRef.current = null
+    }
+  }
+
+  function searchFoodsForName(value: string) {
+    if (foodSearchTimerRef.current) {
+      clearTimeout(foodSearchTimerRef.current)
+      foodSearchTimerRef.current = null
+    }
+
+    const query = value.trim()
+
+    if (query.length < 2) {
+      setFoodSearchResults([])
+      setSearchingFoods(false)
+      return
+    }
+
+    setSearchingFoods(true)
+
+    foodSearchTimerRef.current = setTimeout(() => {
+      foodSearchTimerRef.current = null
+
+      searchMobileFoods(getToken, query)
+        .then((results) => {
+          setFoodSearchResults(Array.isArray(results) ? results : [])
+        })
+        .catch((err: unknown) => {
+          console.warn("Failed to search foods", err)
+          setFoodSearchResults([])
+        })
+        .finally(() => {
+          setSearchingFoods(false)
+        })
+    }, 350)
+  }
+
+  function updateFoodName(value: string) {
+    setForm((current) => ({
+      ...current,
+      food_name: value,
+    }))
+
+    searchFoodsForName(value)
+  }
+
+  function selectFoodSearchResult(result: SearchResultLike) {
+    triggerLightHaptic()
+
+    setForm((current) => ({
+      ...current,
+      food_name: getSearchName(result),
+      serving_grams: "100",
+      calories: String(Math.round(getSearchCalories(result))),
+      protein_g: String(roundMacro(getSearchProtein(result))),
+      carbs_g: String(roundMacro(getSearchCarbs(result))),
+      fat_g: String(roundMacro(getSearchFat(result))),
+    }))
+
+    setFoodSearchResults([])
+    setSearchingFoods(false)
+
+    if (foodSearchTimerRef.current) {
+      clearTimeout(foodSearchTimerRef.current)
+      foodSearchTimerRef.current = null
+    }
   }
 
   function updateFormField(field: keyof FoodFormState, value: string) {
@@ -508,7 +646,9 @@ export default function FoodScreen() {
             </Pressable>
 
             <View style={styles.dateCenter}>
-              <Text style={styles.dateTitle}>{formatDateTitle(selectedDate)}</Text>
+              <Text style={styles.dateTitle}>
+                {formatDateTitle(selectedDate)}
+              </Text>
               <Text style={styles.dateSubtitle}>{selectedDate}</Text>
             </View>
 
@@ -533,9 +673,7 @@ export default function FoodScreen() {
                 <Text style={styles.progressLabel}>Calories</Text>
                 <Text style={styles.progressValue}>
                   {Math.round(totals.calories).toLocaleString()} /{" "}
-                  {calorieTarget > 0
-                    ? calorieTarget.toLocaleString()
-                    : "—"}
+                  {calorieTarget > 0 ? calorieTarget.toLocaleString() : "—"}
                 </Text>
               </View>
 
@@ -646,8 +784,12 @@ export default function FoodScreen() {
           visible={showForm}
           form={form}
           saving={saving}
+          searchingFoods={searchingFoods}
+          foodSearchResults={foodSearchResults}
           onClose={closeForm}
           onChange={updateFormField}
+          onChangeFoodName={updateFoodName}
+          onSelectFoodResult={selectFoodSearchResult}
           onChangeMeal={updateMealType}
           onSave={saveFood}
         />
@@ -669,7 +811,10 @@ function MealSection({
   onEdit: (entry: MobileFoodEntry) => void
   onDelete: (entry: MobileFoodEntry) => void
 }) {
-  const calories = entries.reduce((sum, entry) => sum + toNumber(entry.calories), 0)
+  const calories = entries.reduce(
+    (sum, entry) => sum + toNumber(entry.calories),
+    0
+  )
 
   return (
     <FitCard style={styles.mealCard}>
@@ -751,16 +896,24 @@ function FoodFormModal({
   visible,
   form,
   saving,
+  searchingFoods,
+  foodSearchResults,
   onClose,
   onChange,
+  onChangeFoodName,
+  onSelectFoodResult,
   onChangeMeal,
   onSave,
 }: {
   visible: boolean
   form: FoodFormState
   saving: boolean
+  searchingFoods: boolean
+  foodSearchResults: SearchResultLike[]
   onClose: () => void
   onChange: (field: keyof FoodFormState, value: string) => void
+  onChangeFoodName: (value: string) => void
+  onSelectFoodResult: (result: SearchResultLike) => void
   onChangeMeal: (meal: MealType) => void
   onSave: () => void
 }) {
@@ -781,11 +934,58 @@ function FoodFormModal({
           <ScrollView keyboardShouldPersistTaps="handled">
             <TextInput
               value={form.food_name}
-              onChangeText={(value) => onChange("food_name", value)}
-              placeholder="Food name"
+              onChangeText={onChangeFoodName}
+              placeholder="Search food or type manually"
               placeholderTextColor={colors.textFaint}
               style={styles.foodNameInput}
             />
+
+            {searchingFoods ? (
+              <View style={styles.foodSearchLoading}>
+                <ActivityIndicator color={colors.teal} />
+                <Text style={styles.foodSearchLoadingText}>
+                  Searching foods...
+                </Text>
+              </View>
+            ) : null}
+
+            {foodSearchResults.length > 0 ? (
+              <View style={styles.foodSearchResults}>
+                {foodSearchResults.map((result, index) => (
+                  <Pressable
+                    key={`${getSearchName(result)}-${index}`}
+                    onPress={() => onSelectFoodResult(result)}
+                    style={({ pressed }) => [
+                      styles.foodSearchResultRow,
+                      pressed ? styles.pressed : null,
+                    ]}
+                  >
+                    <View style={styles.foodSearchResultMain}>
+                      <Text style={styles.foodSearchResultName}>
+                        {getSearchName(result)}
+                      </Text>
+
+                      {result.brand ? (
+                        <Text style={styles.foodSearchResultBrand}>
+                          {result.brand}
+                        </Text>
+                      ) : null}
+
+                      <Text style={styles.foodSearchResultMeta}>
+                        Per 100g · {Math.round(getSearchCalories(result))} cal ·{" "}
+                        {roundMacro(getSearchProtein(result))}g protein
+                      </Text>
+                    </View>
+
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={22}
+                      color={colors.teal}
+                    />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
 
             <View style={styles.mealPicker}>
               {MEALS.map((meal) => (
@@ -933,6 +1133,10 @@ const styles = StyleSheet.create({
   },
   dateCard: {
     padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
   },
   dateButton: {
     height: 42,
@@ -1186,6 +1390,63 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
+  },
+  foodSearchLoading: {
+    minHeight: 42,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceLight,
+    borderColor: colors.border,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  foodSearchLoadingText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  foodSearchResults: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceLight,
+    borderColor: colors.border,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+  },
+  foodSearchResultRow: {
+    minHeight: 68,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  foodSearchResultMain: {
+    flex: 1,
+  },
+  foodSearchResultName: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "capitalize",
+  },
+  foodSearchResultBrand: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  foodSearchResultMeta: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4,
   },
   mealPicker: {
     flexDirection: "row",
