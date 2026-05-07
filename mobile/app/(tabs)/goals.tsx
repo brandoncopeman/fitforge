@@ -849,7 +849,7 @@ export default function GoalsScreen() {
                           <Text style={styles.weeklyCount}>
                             {count}/
                             {clampTargetDays(goal.target_days_per_week ?? 7)}
-                          </Text>{" "}
+                          </Text>
                         </View>
 
                         <View style={styles.weeklyTrack}>
@@ -924,7 +924,7 @@ function GoalCard({
             <Text style={styles.goalMeta}>
               {weeklyCount}/{clampTargetDays(goal.target_days_per_week ?? 7)}{" "}
               this week
-            </Text>{" "}
+            </Text>
           </View>
         </View>
 
@@ -960,115 +960,115 @@ function GoalCard({
 }
 
 function GoalFormModal({
-    visible,
-    form,
-    saving,
-    onClose,
-    onChange,
-    onSave,
-  }: {
-    visible: boolean
-    form: GoalFormState
-    saving: boolean
-    onClose: () => void
-    onChange: (field: keyof GoalFormState, value: string) => void
-    onSave: () => void
-  }) {
-    return (
-      <Modal visible={visible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {form.id ? "Edit Goal" : "Add Goal"}
-              </Text>
-  
-              <Pressable onPress={onClose} style={styles.modalCloseButton}>
-                <Ionicons name="close" size={20} color={colors.textMuted} />
-              </Pressable>
-            </View>
-  
-            <TextInput
-              value={form.name}
-              onChangeText={(value) => onChange("name", value)}
-              placeholder="Goal name"
-              placeholderTextColor={colors.textFaint}
-              style={styles.nameInput}
-            />
-  
-            <TextInput
-              value={form.emoji}
-              onChangeText={(value) => onChange("emoji", value)}
-              placeholder="Emoji"
-              placeholderTextColor={colors.textFaint}
-              style={styles.emojiInput}
-            />
-  
-            <Text style={styles.modalLabel}>Days per week</Text>
-  
-            <View style={styles.daysSelector}>
-              {[1, 2, 3, 4, 5, 6, 7].map((day) => {
-                const active = String(day) === form.target_days_per_week
-  
-                return (
-                  <Pressable
-                    key={day}
-                    onPress={() => onChange("target_days_per_week", String(day))}
-                    style={[
-                      styles.dayOption,
-                      active ? styles.dayOptionActive : null,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.dayOptionText,
-                        active ? styles.dayOptionTextActive : null,
-                      ]}
-                    >
-                      {day}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-  
-            <Text style={styles.modalLabel}>Color</Text>
-  
-            <View style={styles.colorRow}>
-              {GOAL_COLORS.map((color) => (
-                <Pressable
-                  key={color}
-                  onPress={() => onChange("color", color)}
-                  style={[
-                    styles.colorDot,
-                    {
-                      backgroundColor: colorValue(color),
-                      borderColor:
-                        form.color === color ? colors.text : "transparent",
-                    },
-                  ]}
-                />
-              ))}
-            </View>
-  
-            <Pressable
-              onPress={onSave}
-              disabled={saving}
-              style={[styles.modalSaveButton, saving && styles.disabledButton]}
-            >
-              {saving ? (
-                <ActivityIndicator color={colors.background} />
-              ) : (
-                <Text style={styles.modalSaveText}>
-                  {form.id ? "Save Goal" : "Create Goal"}
-                </Text>
-              )}
+  visible,
+  form,
+  saving,
+  onClose,
+  onChange,
+  onSave,
+}: {
+  visible: boolean;
+  form: GoalFormState;
+  saving: boolean;
+  onClose: () => void;
+  onChange: (field: keyof GoalFormState, value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {form.id ? "Edit Goal" : "Add Goal"}
+            </Text>
+
+            <Pressable onPress={onClose} style={styles.modalCloseButton}>
+              <Ionicons name="close" size={20} color={colors.textMuted} />
             </Pressable>
           </View>
+
+          <TextInput
+            value={form.name}
+            onChangeText={(value) => onChange("name", value)}
+            placeholder="Goal name"
+            placeholderTextColor={colors.textFaint}
+            style={styles.nameInput}
+          />
+
+          <TextInput
+            value={form.emoji}
+            onChangeText={(value) => onChange("emoji", value)}
+            placeholder="Emoji"
+            placeholderTextColor={colors.textFaint}
+            style={styles.emojiInput}
+          />
+
+          <Text style={styles.modalLabel}>Days per week</Text>
+
+          <View style={styles.daysSelector}>
+            {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+              const active = String(day) === form.target_days_per_week;
+
+              return (
+                <Pressable
+                  key={day}
+                  onPress={() => onChange("target_days_per_week", String(day))}
+                  style={[
+                    styles.dayOption,
+                    active ? styles.dayOptionActive : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dayOptionText,
+                      active ? styles.dayOptionTextActive : null,
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.modalLabel}>Color</Text>
+
+          <View style={styles.colorRow}>
+            {GOAL_COLORS.map((color) => (
+              <Pressable
+                key={color}
+                onPress={() => onChange("color", color)}
+                style={[
+                  styles.colorDot,
+                  {
+                    backgroundColor: colorValue(color),
+                    borderColor:
+                      form.color === color ? colors.text : "transparent",
+                  },
+                ]}
+              />
+            ))}
+          </View>
+
+          <Pressable
+            onPress={onSave}
+            disabled={saving}
+            style={[styles.modalSaveButton, saving && styles.disabledButton]}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text style={styles.modalSaveText}>
+                {form.id ? "Save Goal" : "Create Goal"}
+              </Text>
+            )}
+          </Pressable>
         </View>
-      </Modal>
-    )
-  }
+      </View>
+    </Modal>
+  );
+}
 
 const styles = StyleSheet.create({
   safeArea: {

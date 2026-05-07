@@ -390,7 +390,7 @@ export default function HomeScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push("/(tabs)/stats")}
+            onPress={() => router.push("/(tabs)/weight")}
             style={({ pressed }) => [
               styles.tilePressable,
               pressed ? styles.pressed : null,

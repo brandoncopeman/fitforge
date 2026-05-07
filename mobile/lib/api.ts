@@ -5,6 +5,7 @@ import {
   MobileWorkoutExercise,
 } from "@/types/activeWorkout"
 import { MobileHomeResponse } from "@/types/home"
+import { MobileWeightLog } from "@/types/weight"
 import { MobileStatsResponse } from "@/types/stats"
 import {
   MobileProfileCorePayload,
@@ -271,7 +272,34 @@ export async function getMobileStepLogs(
 ): Promise<MobileStepLog[]> {
   return apiFetch<MobileStepLog[]>("/api/steps", getToken)
 }
+export async function getMobileWeightLogs(
+  getToken: GetToken
+): Promise<MobileWeightLog[]> {
+  return apiFetch<MobileWeightLog[]>("/api/weight", getToken)
+}
 
+export async function getMobileWeightLogForDate(
+  getToken: GetToken,
+  date: string
+): Promise<MobileWeightLog | null> {
+  return apiFetch<MobileWeightLog | null>(
+    `/api/weight?date=${encodeURIComponent(date)}`,
+    getToken
+  )
+}
+
+export async function saveMobileWeightLog(
+  getToken: GetToken,
+  body: {
+    weight_kg: number
+    log_date: string
+  }
+): Promise<MobileWeightLog> {
+  return apiFetch<MobileWeightLog>("/api/weight", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
 export async function getMobileStepLogForDate(
   getToken: GetToken,
   date: string

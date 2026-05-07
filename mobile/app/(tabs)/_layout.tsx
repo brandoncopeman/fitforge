@@ -131,6 +131,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="weight"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="goals"
         options={{
           href: null,
