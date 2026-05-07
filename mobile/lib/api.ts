@@ -19,6 +19,11 @@ import {
   MobileRecentFood,
 } from "@/types/food"
 import {
+  MobileGoal,
+  MobileGoalCompletion,
+  MobileGoalPayload,
+} from "@/types/goals"
+import {
   MobileTemplateExercise,
   MobileTemplatesResponse,
   MobileWorkoutTemplate,
@@ -160,7 +165,84 @@ export async function deleteMobileTemplate(
     method: "DELETE",
   })
 }
+export async function getMobileGoals(
+  getToken: GetToken
+): Promise<MobileGoal[]> {
+  return apiFetch<MobileGoal[]>("/api/goals", getToken)
+}
 
+export async function createMobileGoal(
+  getToken: GetToken,
+  body: MobileGoalPayload
+): Promise<MobileGoal> {
+  return apiFetch<MobileGoal>("/api/goals", getToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateMobileGoal(
+  getToken: GetToken,
+  goalId: string,
+  body: Partial<MobileGoalPayload>
+): Promise<MobileGoal> {
+  return apiFetch<MobileGoal>(`/api/goals/${goalId}`, getToken, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteMobileGoal(
+  getToken: GetToken,
+  goalId: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/goals/${goalId}`, getToken, {
+    method: "DELETE",
+  })
+}
+
+export async function getMobileGoalCompletions(
+  getToken: GetToken,
+  from: string,
+  to: string
+): Promise<MobileGoalCompletion[]> {
+  return apiFetch<MobileGoalCompletion[]>(
+    `/api/goals/completions?from=${encodeURIComponent(
+      from
+    )}&to=${encodeURIComponent(to)}`,
+    getToken
+  )
+}
+
+export async function completeMobileGoal(
+  getToken: GetToken,
+  goalId: string,
+  completedDate: string
+): Promise<MobileGoalCompletion> {
+  return apiFetch<MobileGoalCompletion>("/api/goals/completions", getToken, {
+    method: "POST",
+    body: JSON.stringify({
+      goal_id: goalId,
+      completed_date: completedDate,
+    }),
+  })
+}
+
+export async function uncompleteMobileGoal(
+  getToken: GetToken,
+  goalId: string,
+  completedDate: string
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/api/goals/completions?goal_id=${encodeURIComponent(
+      goalId
+    )}&date=${encodeURIComponent(completedDate)}`,
+    getToken,
+    {
+      method: "DELETE",
+    }
+  )
+}
 export async function updateMobileTemplatePlanStatus(
   getToken: GetToken,
   templateId: string,

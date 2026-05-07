@@ -1,7 +1,7 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import { router } from "expo-router"
-import { useCallback, useEffect, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import { router } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,217 +10,225 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import FitCard from "@/components/FitCard"
-import StatTile from "@/components/StatTile"
-import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import FitCard from "@/components/FitCard";
+import StatTile from "@/components/StatTile";
+import { colors, radius, spacing } from "@/constants/fitforgeTheme";
 import {
   setCachedActiveWorkout,
   setCachedActiveWorkoutForId,
-} from "@/lib/activeWorkoutCache"
-import { getMobileHome, getMobileTemplates, startMobileWorkout } from "@/lib/api"
-import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout"
+} from "@/lib/activeWorkoutCache";
+import {
+  getMobileHome,
+  getMobileTemplates,
+  startMobileWorkout,
+} from "@/lib/api";
+import { buildDraftWorkoutFromTemplate } from "@/lib/draftWorkout";
 import {
   getCachedHome,
   getOrLoadHome,
   setCachedHome,
   subscribeToHomeCache,
-} from "@/lib/homeCache"
+} from "@/lib/homeCache";
 import {
   getCachedTemplates,
   getOrLoadTemplates,
   subscribeToTemplatesCache,
-} from "@/lib/templatesCache"
-import { MobileHomeResponse } from "@/types/home"
-import { MobileWorkoutTemplate } from "@/types/workouts"
+} from "@/lib/templatesCache";
+import { MobileHomeResponse } from "@/types/home";
+import { MobileWorkoutTemplate } from "@/types/workouts";
 
 function getFirstName(name?: string | null) {
-  if (!name) return "there"
-  return name.split(" ")[0]
+  if (!name) return "there";
+  return name.split(" ")[0];
 }
 
 export default function HomeScreen() {
-  const { getToken } = useAuth()
+  const { getToken } = useAuth();
 
-  const cachedTemplates = getCachedTemplates()
-  const cachedHome = getCachedHome()
+  const cachedTemplates = getCachedTemplates();
+  const cachedHome = getCachedHome();
 
-  const [data, setData] = useState<MobileHomeResponse | null>(cachedHome)
+  const [data, setData] = useState<MobileHomeResponse | null>(cachedHome);
   const [preparedNextTemplate, setPreparedNextTemplate] =
     useState<MobileWorkoutTemplate | null>(
       cachedTemplates?.plan.nextTemplate ?? null
-    )
-  const [loading, setLoading] = useState(!cachedHome)
-  const [refreshing, setRefreshing] = useState(false)
-  const [startingWorkout, setStartingWorkout] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+    );
+  const [loading, setLoading] = useState(!cachedHome);
+  const [refreshing, setRefreshing] = useState(false);
+  const [startingWorkout, setStartingWorkout] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadHome = useCallback(
     async (isRefresh = false) => {
       try {
         if (isRefresh) {
-          setRefreshing(true)
+          setRefreshing(true);
         } else {
-          setLoading(!getCachedHome())
+          setLoading(!getCachedHome());
         }
 
-        setError(null)
+        setError(null);
 
-        const home = await getMobileHome(getToken)
+        const home = await getMobileHome(getToken);
 
-        setCachedHome(home)
-        setData(home)
+        setCachedHome(home);
+        setData(home);
       } catch (err) {
-        console.warn("Failed to load home", err)
+        console.warn("Failed to load home", err);
 
         if (!getCachedHome()) {
-          setError(err instanceof Error ? err.message : "Failed to load home")
+          setError(err instanceof Error ? err.message : "Failed to load home");
         }
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        setLoading(false);
+        setRefreshing(false);
       }
     },
     [getToken]
-  )
+  );
 
   useEffect(() => {
-    const cached = getCachedHome()
+    const cached = getCachedHome();
 
     if (cached) {
-      setData(cached)
-      setLoading(false)
+      setData(cached);
+      setLoading(false);
     }
 
     const unsubscribe = subscribeToHomeCache((home) => {
-      setData(home)
-      setLoading(false)
-    })
+      setData(home);
+      setLoading(false);
+    });
 
     getOrLoadHome(() => getMobileHome(getToken))
       .then((home) => {
-        setData(home)
-        setLoading(false)
+        setData(home);
+        setLoading(false);
       })
       .catch((err: unknown) => {
-        console.warn("Failed to warm home cache", err)
+        console.warn("Failed to warm home cache", err);
 
         if (!getCachedHome()) {
-          setError(err instanceof Error ? err.message : "Failed to load home")
+          setError(err instanceof Error ? err.message : "Failed to load home");
         }
       })
       .finally(() => {
-        setLoading(false)
-      })
+        setLoading(false);
+      });
 
-    return unsubscribe
-  }, [getToken])
+    return unsubscribe;
+  }, [getToken]);
 
   useEffect(() => {
-    const cached = getCachedTemplates()
+    const cached = getCachedTemplates();
 
     if (cached?.plan.nextTemplate) {
-      setPreparedNextTemplate(cached.plan.nextTemplate)
+      setPreparedNextTemplate(cached.plan.nextTemplate);
     }
 
     const unsubscribe = subscribeToTemplatesCache((templates) => {
-      setPreparedNextTemplate(templates.plan.nextTemplate)
-    })
+      setPreparedNextTemplate(templates.plan.nextTemplate);
+    });
 
     getOrLoadTemplates(() => getMobileTemplates(getToken))
       .then((templates) => {
-        setPreparedNextTemplate(templates.plan.nextTemplate)
+        setPreparedNextTemplate(templates.plan.nextTemplate);
       })
       .catch((err: unknown) => {
-        console.warn("Failed to prefetch next workout", err)
-      })
+        console.warn("Failed to prefetch next workout", err);
+      });
 
-    return unsubscribe
-  }, [getToken])
+    return unsubscribe;
+  }, [getToken]);
 
   async function handleStartNextWorkout() {
-    if (startingWorkout) return
+    if (startingWorkout) return;
 
-    const templateToStart = preparedNextTemplate
+    const templateToStart = preparedNextTemplate;
 
     if (!templateToStart) {
       try {
-        setStartingWorkout(true)
-        setError(null)
+        setStartingWorkout(true);
+        setError(null);
 
         const templates = await getOrLoadTemplates(() =>
           getMobileTemplates(getToken)
-        )
-        const prepared = templates.plan.nextTemplate
+        );
+        const prepared = templates.plan.nextTemplate;
 
         if (!prepared) {
-          setError("No next workout is ready. Add a template to your plan first.")
-          return
+          setError(
+            "No next workout is ready. Add a template to your plan first."
+          );
+          return;
         }
 
         const draftWorkout = buildDraftWorkoutFromTemplate({
           template: prepared,
           startedFromQueuedTemplate: true,
-        })
+        });
 
-        setCachedActiveWorkout(draftWorkout)
+        setCachedActiveWorkout(draftWorkout);
 
         router.push({
           pathname: "/workout/[id]",
           params: {
             id: draftWorkout.workout.id,
           },
-        })
+        });
 
         startMobileWorkout(getToken, prepared.id)
           .then((realWorkout) => {
-            setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
-            setCachedActiveWorkout(realWorkout)
+            setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout);
+            setCachedActiveWorkout(realWorkout);
           })
           .catch((err: unknown) => {
-            console.warn("Failed to save workout in background", err)
-          })
+            console.warn("Failed to save workout in background", err);
+          });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to start workout")
+        setError(
+          err instanceof Error ? err.message : "Failed to start workout"
+        );
       } finally {
-        setStartingWorkout(false)
+        setStartingWorkout(false);
       }
 
-      return
+      return;
     }
 
     try {
-      setStartingWorkout(true)
-      setError(null)
+      setStartingWorkout(true);
+      setError(null);
 
       const draftWorkout = buildDraftWorkoutFromTemplate({
         template: templateToStart,
         startedFromQueuedTemplate: true,
-      })
+      });
 
-      setCachedActiveWorkout(draftWorkout)
+      setCachedActiveWorkout(draftWorkout);
 
       router.push({
         pathname: "/workout/[id]",
         params: {
           id: draftWorkout.workout.id,
         },
-      })
+      });
 
       startMobileWorkout(getToken, templateToStart.id)
         .then((realWorkout) => {
-          setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout)
-          setCachedActiveWorkout(realWorkout)
+          setCachedActiveWorkoutForId(draftWorkout.workout.id, realWorkout);
+          setCachedActiveWorkout(realWorkout);
         })
         .catch((err: unknown) => {
-          console.warn("Failed to save workout in background", err)
-        })
+          console.warn("Failed to save workout in background", err);
+        });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start workout")
+      setError(err instanceof Error ? err.message : "Failed to start workout");
     } finally {
-      setStartingWorkout(false)
+      setStartingWorkout(false);
     }
   }
 
@@ -230,7 +238,7 @@ export default function HomeScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading FitForge...</Text>
       </SafeAreaView>
-    )
+    );
   }
 
   if (error && !data) {
@@ -245,18 +253,18 @@ export default function HomeScreen() {
           <Text style={styles.retryText}>Tap to retry</Text>
         </FitCard>
       </SafeAreaView>
-    )
+    );
   }
 
-  const profile = data?.profile
-  const dashboard = data?.dashboard
-  const plan = data?.plan
-  const progress = data?.progress
+  const profile = data?.profile;
+  const dashboard = data?.dashboard;
+  const plan = data?.plan;
+  const progress = data?.progress;
 
-  const latestProgress = progress?.events?.[0] ?? null
-  const weeklyRecap = progress?.weeklyRecap ?? null
-  const nextTemplate = preparedNextTemplate ?? plan?.nextTemplate ?? null
-  const planStatus = plan?.status ?? null
+  const latestProgress = progress?.events?.[0] ?? null;
+  const weeklyRecap = progress?.weeklyRecap ?? null;
+  const nextTemplate = preparedNextTemplate ?? plan?.nextTemplate ?? null;
+  const planStatus = plan?.status ?? null;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -495,16 +503,16 @@ export default function HomeScreen() {
 
           <FitCard
             style={styles.quickCard}
-            onPress={() => router.push("/(tabs)/stats")}
+            onPress={() => router.push("/(tabs)/goals")}
           >
             <Text style={styles.quickEmoji}>🎯</Text>
             <Text style={styles.quickTitle}>Goals</Text>
-            <Text style={styles.quickDetail}>Coming soon</Text>
+            <Text style={styles.quickDetail}>Daily habits</Text>
           </FitCard>
         </View>
       </ScrollView>
     </SafeAreaView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -748,4 +756,4 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 17,
   },
-})
+});
