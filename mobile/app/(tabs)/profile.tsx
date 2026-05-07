@@ -5,6 +5,9 @@ import { router } from "expo-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -21,6 +24,7 @@ import FitCard from "@/components/FitCard"
 import StatTile from "@/components/StatTile"
 import { colors, radius, spacing } from "@/constants/fitforgeTheme"
 import {
+  deleteMobileAccount,
   getMobileProfile,
   saveMobileProfileCore,
   updateMobileProfileSettings,
@@ -101,6 +105,11 @@ export default function ProfileScreen() {
   const [savingStatus, setSavingStatus] = useState<SavingStatus>("idle")
   const [error, setError] = useState<string | null>(null)
 
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState("")
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   const saveNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveGoalWeightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -172,6 +181,60 @@ export default function ProfileScreen() {
   async function handleSignOut() {
     await signOut()
     router.replace("/(auth)/sign-in")
+  }
+
+  function openDeleteModal() {
+    triggerLightHaptic()
+    setDeleteConfirmation("")
+    setDeleteError(null)
+    setDeleteModalVisible(true)
+  }
+
+  function closeDeleteModal() {
+    if (deletingAccount) return
+
+    setDeleteConfirmation("")
+    setDeleteError(null)
+    setDeleteModalVisible(false)
+  }
+
+  async function handleDeleteAccount() {
+    if (deleteConfirmation.trim() !== "DELETE" || deletingAccount) return
+
+    Alert.alert(
+      "Delete account permanently?",
+      "This will permanently delete your FitForge account and app data. This cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete forever",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingAccount(true)
+              setDeleteError(null)
+
+              await deleteMobileAccount(getToken, "DELETE")
+
+              await signOut()
+              router.replace("/(auth)/sign-in")
+            } catch (err) {
+              console.warn("Failed to delete account", err)
+              setDeleteError(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to delete account"
+              )
+            } finally {
+              setDeletingAccount(false)
+            }
+          },
+        },
+      ]
+    )
   }
 
   function scheduleDisplayNameSave(value: string) {
@@ -295,15 +358,13 @@ export default function ProfileScreen() {
     const current = latestProfileRef.current
     if (!current) return
 
-    setProfile({
-      ...current,
-      daily_step_target: cleaned === "" ? 0 : Number(cleaned),
-    })
-
-    latestProfileRef.current = {
+    const nextProfile = {
       ...current,
       daily_step_target: cleaned === "" ? 0 : Number(cleaned),
     }
+
+    setProfile(nextProfile)
+    latestProfileRef.current = nextProfile
   }
 
   function updateWeeklyWorkoutTarget(value: string) {
@@ -311,15 +372,13 @@ export default function ProfileScreen() {
     const current = latestProfileRef.current
     if (!current) return
 
-    setProfile({
-      ...current,
-      weekly_workout_target: cleaned === "" ? 0 : Number(cleaned),
-    })
-
-    latestProfileRef.current = {
+    const nextProfile = {
       ...current,
       weekly_workout_target: cleaned === "" ? 0 : Number(cleaned),
     }
+
+    setProfile(nextProfile)
+    latestProfileRef.current = nextProfile
   }
 
   async function saveTargets() {
@@ -613,13 +672,108 @@ export default function ProfileScreen() {
           <SettingRow icon="barbell-outline" label="FitForge Mobile" value="v1" />
           <SettingRow icon="phone-portrait-outline" label="Platform" value={Platform.OS} />
           <SettingRow icon="shield-checkmark-outline" label="Privacy" value="Web settings" />
-          <SettingRow icon="trash-outline" label="Delete account" value="Web for now" danger />
+
+          <Pressable
+            onPress={openDeleteModal}
+            style={({ pressed }) => [
+              styles.deleteRow,
+              pressed ? styles.pressed : null,
+            ]}
+          >
+            <View style={styles.settingLeft}>
+              <Ionicons name="trash-outline" size={20} color={colors.red} />
+              <Text style={[styles.settingLabel, styles.dangerText]}>
+                Delete account
+              </Text>
+            </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={colors.textMuted}
+            />
+          </Pressable>
         </FitCard>
 
         <FitCard accent onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </FitCard>
       </ScrollView>
+
+      <Modal visible={deleteModalVisible} transparent animationType="fade">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Delete account</Text>
+
+              <Pressable
+                onPress={closeDeleteModal}
+                disabled={deletingAccount}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.warningTitle}>This cannot be undone.</Text>
+
+            <Text style={styles.warningText}>
+              This permanently deletes your FitForge profile, workouts,
+              templates, food logs, steps, weight logs, goals, progress history,
+              and account access.
+            </Text>
+
+            <Text style={styles.confirmLabel}>Type DELETE to confirm</Text>
+
+            <TextInput
+              value={deleteConfirmation}
+              onChangeText={setDeleteConfirmation}
+              autoCapitalize="characters"
+              placeholder="DELETE"
+              placeholderTextColor={colors.textFaint}
+              editable={!deletingAccount}
+              style={styles.deleteInput}
+            />
+
+            {deleteError ? (
+              <Text selectable style={styles.deleteError}>
+                {deleteError}
+              </Text>
+            ) : null}
+
+            <Pressable
+              onPress={handleDeleteAccount}
+              disabled={
+                deleteConfirmation.trim() !== "DELETE" || deletingAccount
+              }
+              style={[
+                styles.deleteButton,
+                (deleteConfirmation.trim() !== "DELETE" || deletingAccount) &&
+                  styles.deleteButtonDisabled,
+              ]}
+            >
+              {deletingAccount ? (
+                <ActivityIndicator color={colors.text} />
+              ) : (
+                <Text style={styles.deleteButtonText}>
+                  Delete my account forever
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={closeDeleteModal}
+              disabled={deletingAccount}
+              style={styles.cancelButton}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -838,6 +992,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: spacing.md,
   },
+  deleteRow: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    gap: spacing.md,
+  },
   settingLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -912,5 +1075,105 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     textAlign: "center",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderColor: colors.border,
+    borderWidth: 1,
+    padding: spacing.lg,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  modalCloseButton: {
+    height: 38,
+    width: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  warningTitle: {
+    color: colors.red,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+  },
+  warningText: {
+    color: colors.textSoft,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 21,
+    marginBottom: spacing.lg,
+  },
+  confirmLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    marginBottom: spacing.sm,
+  },
+  deleteInput: {
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceLight,
+    borderColor: colors.border,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.md,
+  },
+  deleteError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  deleteButton: {
+    minHeight: 52,
+    borderRadius: radius.lg,
+    backgroundColor: colors.red,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteButtonDisabled: {
+    opacity: 0.45,
+  },
+  deleteButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  cancelButton: {
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.sm,
+  },
+  cancelButtonText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "900",
   },
 })

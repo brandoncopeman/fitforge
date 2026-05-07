@@ -287,7 +287,17 @@ export async function getMobileWeightLogForDate(
     getToken
   )
 }
-
+export async function deleteMobileAccount(
+  getToken: GetToken,
+  confirmation: "DELETE"
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/mobile/account", getToken, {
+    method: "DELETE",
+    body: JSON.stringify({
+      confirmation,
+    }),
+  })
+}
 export async function saveMobileWeightLog(
   getToken: GetToken,
   body: {
