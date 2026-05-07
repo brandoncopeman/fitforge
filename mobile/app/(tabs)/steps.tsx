@@ -1,7 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/clerk-expo";
-import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons"
+import { useAuth } from "@clerk/clerk-expo"
+import * as Haptics from "expo-haptics"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,47 +13,61 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 
-import FitCard from "@/components/FitCard";
-import StatTile from "@/components/StatTile";
-import { colors, radius, spacing } from "@/constants/fitforgeTheme";
+import FitCard from "@/components/FitCard"
+import StatTile from "@/components/StatTile"
+import { colors, radius, spacing } from "@/constants/fitforgeTheme"
 import {
   getMobileProfile,
   getMobileStepLogs,
   saveMobileStepLog,
   updateMobileStepGoal,
-} from "@/lib/api";
-import { MobileStepLog } from "@/types/steps";
+} from "@/lib/api"
+import { MobileStepLog } from "@/types/steps"
 
-type SavingStatus = "idle" | "saving" | "saved" | "error";
+type SavingStatus = "idle" | "saving" | "saved" | "error"
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+  }
+}
+
+function triggerMediumHaptic() {
+  if (Platform.OS !== "web") {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
   }
 }
 
 function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getDate()}`.padStart(2, "0")
 
-  return `${year}-${month}-${day}`;
+  return `${year}-${month}-${day}`
 }
+
 function normalizeLogDate(value: unknown) {
-  if (!value) return getLocalDateString();
+  if (!value) return getLocalDateString()
 
   if (typeof value === "string") {
-    return value.slice(0, 10);
+    return value.slice(0, 10)
   }
 
   if (value instanceof Date) {
-    return getLocalDateString(value);
+    return getLocalDateString(value)
   }
 
-  return String(value).slice(0, 10);
+  return String(value).slice(0, 10)
+}
+
+function toNumber(value: unknown, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function normalizeStepLog(log: MobileStepLog): MobileStepLog {
@@ -61,276 +75,265 @@ function normalizeStepLog(log: MobileStepLog): MobileStepLog {
     ...log,
     log_date: normalizeLogDate(log.log_date),
     steps: Math.max(0, Math.round(toNumber(log.steps, 0))),
-  };
+  }
 }
 
 function normalizeStepLogs(logs: MobileStepLog[]) {
-  return logs.map(normalizeStepLog);
+  return logs.map(normalizeStepLog)
 }
+
 function shiftDate(dateString: string, days: number) {
-  const date = new Date(`${dateString}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return getLocalDateString(date);
-}
-
-function toNumber(value: unknown, fallback = 0) {
-  if (value === null || value === undefined || value === "") return fallback;
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const date = new Date(`${normalizeLogDate(dateString)}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return getLocalDateString(date)
 }
 
 function normalizeIntegerInput(value: string) {
-  return value.replace(/[^0-9]/g, "");
+  return value.replace(/[^0-9]/g, "")
 }
 
 function formatNumber(value: unknown) {
-  return Math.round(toNumber(value, 0)).toLocaleString();
+  return Math.round(toNumber(value, 0)).toLocaleString()
 }
 
 function formatDateTitle(dateString: string) {
-  const today = getLocalDateString();
-  const yesterday = shiftDate(today, -1);
-  const tomorrow = shiftDate(today, 1);
+  const normalizedDate = normalizeLogDate(dateString)
+  const today = getLocalDateString()
+  const yesterday = shiftDate(today, -1)
+  const tomorrow = shiftDate(today, 1)
 
-  if (dateString === today) return "Today";
-  if (dateString === yesterday) return "Yesterday";
-  if (dateString === tomorrow) return "Tomorrow";
+  if (normalizedDate === today) return "Today"
+  if (normalizedDate === yesterday) return "Yesterday"
+  if (normalizedDate === tomorrow) return "Tomorrow"
 
-  const date = new Date(`${dateString}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return dateString;
+  const date = new Date(`${normalizedDate}T12:00:00`)
+  if (Number.isNaN(date.getTime())) return normalizedDate
 
   return date.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
-  });
+  })
 }
 
 function formatMonthTitle(date: Date) {
   return date.toLocaleDateString(undefined, {
     month: "long",
     year: "numeric",
-  });
+  })
 }
 
 function formatHistoryDate(dateString: string) {
-    const normalizedDate = normalizeLogDate(dateString)
-    const today = getLocalDateString()
-    const yesterday = shiftDate(today, -1)
-  
-    if (normalizedDate === today) return "Today"
-    if (normalizedDate === yesterday) return "Yesterday"
-  
-    const date = new Date(`${normalizedDate}T12:00:00`)
-    if (Number.isNaN(date.getTime())) return normalizedDate
-  
-    return date.toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-    })
-  }
+  const normalizedDate = normalizeLogDate(dateString)
+  const today = getLocalDateString()
+  const yesterday = shiftDate(today, -1)
+
+  if (normalizedDate === today) return "Today"
+  if (normalizedDate === yesterday) return "Yesterday"
+
+  const date = new Date(`${normalizedDate}T12:00:00`)
+  if (Number.isNaN(date.getTime())) return normalizedDate
+
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  })
+}
 
 function getMonthGrid(selectedMonth: Date) {
-  const year = selectedMonth.getFullYear();
-  const month = selectedMonth.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const startOffset = firstDay.getDay();
+  const year = selectedMonth.getFullYear()
+  const month = selectedMonth.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const startOffset = firstDay.getDay()
 
-  const cells: ({ key: string; day: number; dateString: string } | null)[] = [];
+  const cells: ({ key: string; day: number; dateString: string } | null)[] = []
 
   for (let i = 0; i < startOffset; i += 1) {
-    cells.push(null);
+    cells.push(null)
   }
 
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(year, month, day);
+    const date = new Date(year, month, day)
     cells.push({
       key: getLocalDateString(date),
       day,
       dateString: getLocalDateString(date),
-    });
+    })
   }
 
   while (cells.length % 7 !== 0) {
-    cells.push(null);
+    cells.push(null)
   }
 
-  return cells;
+  return cells
 }
 
 function getStepIntensity(steps: number, target: number) {
-  if (steps <= 0 || target <= 0) return "none";
-  if (steps >= target) return "full";
-  if (steps >= target * 0.75) return "high";
-  if (steps >= target * 0.5) return "medium";
-  return "low";
+  if (steps <= 0 || target <= 0) return "none"
+  if (steps >= target) return "full"
+  if (steps >= target * 0.75) return "high"
+  if (steps >= target * 0.5) return "medium"
+  return "low"
 }
 
 export default function StepsScreen() {
-  const { getToken } = useAuth();
+  const { getToken } = useAuth()
 
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
-  const [stepLogs, setStepLogs] = useState<MobileStepLog[]>([]);
-  const [dailyStepTarget, setDailyStepTarget] = useState(8000);
-  const [stepInput, setStepInput] = useState("0");
-  const [goalInput, setGoalInput] = useState("8000");
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString())
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date())
+  const [stepLogs, setStepLogs] = useState<MobileStepLog[]>([])
+  const [dailyStepTarget, setDailyStepTarget] = useState(8000)
+  const [stepInput, setStepInput] = useState("0")
+  const [goalInput, setGoalInput] = useState("8000")
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [savingStatus, setSavingStatus] = useState<SavingStatus>("idle");
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [savingStatus, setSavingStatus] = useState<SavingStatus>("idle")
   const [goalSavingStatus, setGoalSavingStatus] =
-    useState<SavingStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
+    useState<SavingStatus>("idle")
+  const [error, setError] = useState<string | null>(null)
+  const [hasStepChanges, setHasStepChanges] = useState(false)
 
-  const stepSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const goalSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestLogsRef = useRef<MobileStepLog[]>([]);
-
-  useEffect(() => {
-    latestLogsRef.current = stepLogs;
-  }, [stepLogs]);
+  const goalSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stepsByDate = useMemo(() => {
     return stepLogs.reduce<Record<string, MobileStepLog>>((map, log) => {
-      const normalizedDate = normalizeLogDate(log.log_date);
+      const normalizedDate = normalizeLogDate(log.log_date)
+
       map[normalizedDate] = {
         ...log,
         log_date: normalizedDate,
-      };
-      return map;
-    }, {});
-  }, [stepLogs]);
+      }
 
-  const selectedLog = stepsByDate[selectedDate] ?? null;
-  const selectedSteps = toNumber(selectedLog?.steps ?? stepInput, 0);
-  const todayLog = stepsByDate[getLocalDateString()] ?? null;
+      return map
+    }, {})
+  }, [stepLogs])
+
+  const selectedLog = stepsByDate[normalizeLogDate(selectedDate)] ?? null
+  const selectedSteps = toNumber(stepInput || selectedLog?.steps, 0)
+  const todayLog = stepsByDate[getLocalDateString()] ?? null
   const todaySteps =
-    selectedDate === getLocalDateString()
+    normalizeLogDate(selectedDate) === getLocalDateString()
       ? selectedSteps
-      : toNumber(todayLog?.steps, 0);
+      : toNumber(todayLog?.steps, 0)
 
   const progress =
-    dailyStepTarget > 0 ? Math.min(1, selectedSteps / dailyStepTarget) : 0;
+    dailyStepTarget > 0 ? Math.min(1, selectedSteps / dailyStepTarget) : 0
 
-  const remainingSteps = Math.max(0, dailyStepTarget - selectedSteps);
+  const remainingSteps = Math.max(0, dailyStepTarget - selectedSteps)
 
   const averageSteps = useMemo(() => {
-    if (stepLogs.length === 0) return 0;
+    if (stepLogs.length === 0) return 0
 
-    const total = stepLogs.reduce((sum, log) => sum + toNumber(log.steps), 0);
-    return Math.round(total / stepLogs.length);
-  }, [stepLogs]);
+    const total = stepLogs.reduce((sum, log) => sum + toNumber(log.steps), 0)
+    return Math.round(total / stepLogs.length)
+  }, [stepLogs])
 
   const goalMetCount = useMemo(() => {
     return stepLogs.filter((log) => toNumber(log.steps) >= dailyStepTarget)
-      .length;
-  }, [dailyStepTarget, stepLogs]);
+      .length
+  }, [dailyStepTarget, stepLogs])
 
   const recentLogs = useMemo(() => {
     return [...stepLogs]
-      .sort((a, b) => b.log_date.localeCompare(a.log_date))
-      .slice(0, 14);
-  }, [stepLogs]);
+      .sort((a, b) =>
+        normalizeLogDate(b.log_date).localeCompare(normalizeLogDate(a.log_date))
+      )
+      .slice(0, 14)
+  }, [stepLogs])
 
   const monthCells = useMemo(() => {
-    return getMonthGrid(selectedMonth);
-  }, [selectedMonth]);
+    return getMonthGrid(selectedMonth)
+  }, [selectedMonth])
 
   const loadSteps = useCallback(
     async (isRefresh = false) => {
       try {
         if (isRefresh) {
-          setRefreshing(true);
+          setRefreshing(true)
         } else {
-          setLoading(stepLogs.length === 0);
+          setLoading(stepLogs.length === 0)
         }
 
-        setError(null);
+        setError(null)
 
         const [profileResponse, logs] = await Promise.all([
           getMobileProfile(getToken),
           getMobileStepLogs(getToken),
-        ]);
+        ])
 
         const nextTarget = Math.max(
           1,
           toNumber(profileResponse.profile?.daily_step_target, 8000)
-        );
+        )
 
-        const nextLogs = normalizeStepLogs(Array.isArray(logs) ? logs : []);
-        const normalizedSelectedDate = normalizeLogDate(selectedDate);
+        const nextLogs = normalizeStepLogs(Array.isArray(logs) ? logs : [])
+        const normalizedSelectedDate = normalizeLogDate(selectedDate)
         const selected = nextLogs.find(
           (log) => normalizeLogDate(log.log_date) === normalizedSelectedDate
-        );
+        )
 
-        setDailyStepTarget(nextTarget);
-        setGoalInput(String(nextTarget));
-        setStepLogs(nextLogs);
-
-        if (savingStatus !== "saving") {
-          setStepInput(String(toNumber(selected?.steps, 0)));
-        }
+        setDailyStepTarget(nextTarget)
+        setGoalInput(String(nextTarget))
+        setStepLogs(nextLogs)
+        setStepInput(String(toNumber(selected?.steps, 0)))
+        setHasStepChanges(false)
+        setSavingStatus("idle")
       } catch (err) {
-        console.warn("Failed to load steps", err);
-        setError(err instanceof Error ? err.message : "Failed to load steps");
+        console.warn("Failed to load steps", err)
+        setError(err instanceof Error ? err.message : "Failed to load steps")
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        setLoading(false)
+        setRefreshing(false)
       }
     },
-    [getToken, selectedDate, savingStatus, stepLogs.length]
-  );
+    [getToken, selectedDate, stepLogs.length]
+  )
 
   useEffect(() => {
-    loadSteps();
+    loadSteps()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [])
 
   useEffect(() => {
-    if (savingStatus === "saving") return;
-
-    const selected = stepsByDate[normalizeLogDate(selectedDate)];
-    setStepInput(String(toNumber(selected?.steps, 0)));
-  }, [selectedDate, savingStatus, stepsByDate]);
+    const selected = stepsByDate[normalizeLogDate(selectedDate)]
+    setStepInput(String(toNumber(selected?.steps, 0)))
+    setHasStepChanges(false)
+    setSavingStatus("idle")
+  }, [selectedDate, stepsByDate])
 
   useEffect(() => {
     return () => {
-      if (stepSaveTimerRef.current) {
-        clearTimeout(stepSaveTimerRef.current);
-      }
-
       if (goalSaveTimerRef.current) {
-        clearTimeout(goalSaveTimerRef.current);
+        clearTimeout(goalSaveTimerRef.current)
       }
-    };
-  }, []);
+    }
+  }, [])
 
   function changeDate(days: number) {
-    triggerLightHaptic();
-    setSelectedDate((current) => shiftDate(current, days));
+    triggerLightHaptic()
+    setSelectedDate((current) => shiftDate(current, days))
   }
 
   function changeMonth(direction: -1 | 1) {
-    triggerLightHaptic();
+    triggerLightHaptic()
 
     setSelectedMonth((current) => {
-      const next = new Date(current);
-      next.setMonth(next.getMonth() + direction);
-      return next;
-    });
+      const next = new Date(current)
+      next.setMonth(next.getMonth() + direction)
+      return next
+    })
   }
 
   function upsertLocalStepLog(date: string, steps: number) {
-    const normalizedDate = normalizeLogDate(date);
+    const normalizedDate = normalizeLogDate(date)
 
     setStepLogs((current) => {
       const exists = current.some(
         (log) => normalizeLogDate(log.log_date) === normalizedDate
-      );
+      )
 
       if (exists) {
         return current.map((log) =>
@@ -341,7 +344,7 @@ export default function StepsScreen() {
                 steps,
               }
             : log
-        );
+        )
       }
 
       return [
@@ -352,94 +355,96 @@ export default function StepsScreen() {
           isTemp: true,
         },
         ...current,
-      ];
-    });
+      ]
+    })
   }
 
   function updateStepInput(value: string) {
-    const cleaned = normalizeIntegerInput(value);
-    const steps = Math.max(0, toNumber(cleaned, 0));
+    const cleaned = normalizeIntegerInput(value)
+    const steps = Math.max(0, toNumber(cleaned, 0))
 
-    setStepInput(cleaned);
-    upsertLocalStepLog(selectedDate, steps);
-    setSavingStatus("saving");
+    setStepInput(cleaned)
+    upsertLocalStepLog(selectedDate, steps)
+    setHasStepChanges(true)
+    setSavingStatus("idle")
+  }
 
-    if (stepSaveTimerRef.current) {
-      clearTimeout(stepSaveTimerRef.current);
-    }
+  async function saveSelectedSteps() {
+    const steps = Math.max(0, Math.round(toNumber(stepInput, 0)))
+    const normalizedSelectedDate = normalizeLogDate(selectedDate)
 
-    stepSaveTimerRef.current = setTimeout(() => {
-      stepSaveTimerRef.current = null;
+    try {
+      triggerMediumHaptic()
+      setSavingStatus("saving")
+      setError(null)
 
-      saveMobileStepLog(getToken, {
+      const savedLog = await saveMobileStepLog(getToken, {
         steps,
-        log_date: selectedDate,
+        log_date: normalizedSelectedDate,
       })
-        .then((savedLog) => {
-          const normalizedSavedLog = normalizeStepLog(savedLog);
-          const normalizedSelectedDate = normalizeLogDate(selectedDate);
 
-          setStepLogs((current) => {
-            const exists = current.some(
-              (log) => normalizeLogDate(log.log_date) === normalizedSelectedDate
-            );
+      const normalizedSavedLog = normalizeStepLog(savedLog)
 
-            if (!exists) {
-              return [normalizedSavedLog, ...current];
-            }
+      setStepLogs((current) => {
+        const exists = current.some(
+          (log) => normalizeLogDate(log.log_date) === normalizedSelectedDate
+        )
 
-            return current.map((log) =>
-              normalizeLogDate(log.log_date) === normalizedSelectedDate
-                ? normalizedSavedLog
-                : log
-            );
-          });
+        if (!exists) {
+          return [normalizedSavedLog, ...current]
+        }
 
-          setStepInput(String(toNumber(normalizedSavedLog.steps, steps)));
-          setSavingStatus("saved");
-        })
-        .catch((err: unknown) => {
-          console.warn("Failed to save steps", err);
-          setSavingStatus("error");
-          setError(err instanceof Error ? err.message : "Failed to save steps");
-        });
-    }, 800);
+        return current.map((log) =>
+          normalizeLogDate(log.log_date) === normalizedSelectedDate
+            ? normalizedSavedLog
+            : log
+        )
+      })
+
+      setStepInput(String(toNumber(normalizedSavedLog.steps, steps)))
+      setHasStepChanges(false)
+      setSavingStatus("saved")
+    } catch (err) {
+      console.warn("Failed to save steps", err)
+      setSavingStatus("error")
+      setError(err instanceof Error ? err.message : "Failed to save steps")
+    }
   }
 
   function updateGoalInput(value: string) {
-    const cleaned = normalizeIntegerInput(value);
-    const nextGoal = Math.max(1, toNumber(cleaned, 1));
+    const cleaned = normalizeIntegerInput(value)
+    const nextGoal = Math.max(1, toNumber(cleaned, 1))
 
-    setGoalInput(cleaned);
-    setDailyStepTarget(nextGoal);
-    setGoalSavingStatus("saving");
+    setGoalInput(cleaned)
+    setDailyStepTarget(nextGoal)
+    setGoalSavingStatus("saving")
 
     if (goalSaveTimerRef.current) {
-      clearTimeout(goalSaveTimerRef.current);
+      clearTimeout(goalSaveTimerRef.current)
     }
 
     goalSaveTimerRef.current = setTimeout(() => {
-      goalSaveTimerRef.current = null;
+      goalSaveTimerRef.current = null
 
       updateMobileStepGoal(getToken, nextGoal)
         .then((response) => {
-          setDailyStepTarget(response.daily_step_target);
-          setGoalInput(String(response.daily_step_target));
-          setGoalSavingStatus("saved");
+          setDailyStepTarget(response.daily_step_target)
+          setGoalInput(String(response.daily_step_target))
+          setGoalSavingStatus("saved")
         })
         .catch((err: unknown) => {
-          console.warn("Failed to save step goal", err);
-          setGoalSavingStatus("error");
+          console.warn("Failed to save step goal", err)
+          setGoalSavingStatus("error")
           setError(
             err instanceof Error ? err.message : "Failed to save step goal"
-          );
-        });
-    }, 800);
+          )
+        })
+    }, 800)
   }
 
   function selectCalendarDate(dateString: string) {
-    triggerLightHaptic();
-    setSelectedDate(dateString);
+    triggerLightHaptic()
+    setSelectedDate(normalizeLogDate(dateString))
   }
 
   if (loading && stepLogs.length === 0) {
@@ -448,7 +453,7 @@ export default function StepsScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading steps...</Text>
       </SafeAreaView>
-    );
+    )
   }
 
   return (
@@ -483,7 +488,9 @@ export default function StepsScreen() {
               <Text style={styles.dateTitle}>
                 {formatDateTitle(selectedDate)}
               </Text>
-              <Text style={styles.dateSubtitle}>{selectedDate}</Text>
+              <Text style={styles.dateSubtitle}>
+                {normalizeLogDate(selectedDate)}
+              </Text>
             </View>
 
             <Pressable onPress={() => changeDate(1)} style={styles.dateButton}>
@@ -502,17 +509,38 @@ export default function StepsScreen() {
           <FitCard accent>
             <Text style={styles.heroLabel}>Step count</Text>
 
-            <TextInput
-              value={stepInput}
-              onChangeText={updateStepInput}
-              keyboardType="numeric"
-              selectTextOnFocus
-              style={styles.stepInput}
-            />
+            <View style={styles.stepInputShell}>
+              <TextInput
+                value={stepInput}
+                onChangeText={updateStepInput}
+                keyboardType="numeric"
+                selectTextOnFocus
+                textAlign="center"
+                style={styles.stepInput}
+              />
+            </View>
 
             <Text style={styles.heroSubtext}>
               / {formatNumber(dailyStepTarget)} step goal
             </Text>
+
+            <Pressable
+              onPress={saveSelectedSteps}
+              disabled={!hasStepChanges || savingStatus === "saving"}
+              style={[
+                styles.confirmStepsButton,
+                (!hasStepChanges || savingStatus === "saving") &&
+                  styles.confirmStepsButtonDisabled,
+              ]}
+            >
+              {savingStatus === "saving" ? (
+                <ActivityIndicator color={colors.background} />
+              ) : (
+                <Text style={styles.confirmStepsButtonText}>
+                  {hasStepChanges ? "Save Steps" : "Steps Saved"}
+                </Text>
+              )}
+            </Pressable>
 
             <View style={styles.progressTrack}>
               <View
@@ -539,6 +567,8 @@ export default function StepsScreen() {
                   ? "Saved"
                   : savingStatus === "error"
                   ? "Save failed"
+                  : hasStepChanges
+                  ? "Unsaved"
                   : "Ready"}
               </Text>
             </View>
@@ -636,13 +666,13 @@ export default function StepsScreen() {
             <View style={styles.calendarGrid}>
               {monthCells.map((cell, index) => {
                 if (!cell) {
-                  return <View key={`empty-${index}`} style={styles.dayCell} />;
+                  return <View key={`empty-${index}`} style={styles.dayCell} />
                 }
 
-                const log = stepsByDate[cell.dateString];
-                const steps = toNumber(log?.steps, 0);
-                const intensity = getStepIntensity(steps, dailyStepTarget);
-                const selected = cell.dateString === selectedDate;
+                const log = stepsByDate[cell.dateString]
+                const steps = toNumber(log?.steps, 0)
+                const intensity = getStepIntensity(steps, dailyStepTarget)
+                const selected = cell.dateString === normalizeLogDate(selectedDate)
 
                 return (
                   <Pressable
@@ -674,7 +704,7 @@ export default function StepsScreen() {
                       </Text>
                     ) : null}
                   </Pressable>
-                );
+                )
               })}
             </View>
           </FitCard>
@@ -685,22 +715,21 @@ export default function StepsScreen() {
             {recentLogs.length > 0 ? (
               <View style={styles.historyList}>
                 {recentLogs.map((log) => {
-                  const steps = toNumber(log.steps, 0);
-                  const goalMet = steps >= dailyStepTarget;
+                  const normalizedDate = normalizeLogDate(log.log_date)
+                  const steps = toNumber(log.steps, 0)
+                  const goalMet = steps >= dailyStepTarget
 
                   return (
                     <Pressable
                       key={log.id}
-                      onPress={() => selectCalendarDate(log.log_date)}
+                      onPress={() => selectCalendarDate(normalizedDate)}
                       style={styles.historyRow}
                     >
                       <View>
                         <Text style={styles.historyDate}>
-                          {formatHistoryDate(normalizeLogDate(log.log_date))}
+                          {formatHistoryDate(normalizedDate)}
                         </Text>
-                        <Text style={styles.historyMeta}>
-                          {normalizeLogDate(log.log_date)}
-                        </Text>
+                        <Text style={styles.historyMeta}>{normalizedDate}</Text>
                       </View>
 
                       <View style={styles.historyRight}>
@@ -722,7 +751,7 @@ export default function StepsScreen() {
                         )}
                       </View>
                     </Pressable>
-                  );
+                  )
                 })}
               </View>
             ) : (
@@ -734,7 +763,7 @@ export default function StepsScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
@@ -816,18 +845,42 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
+  stepInputShell: {
+    minHeight: 76,
+    marginTop: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   stepInput: {
     color: colors.text,
-    fontSize: 54,
+    fontSize: 50,
     fontWeight: "900",
     padding: 0,
-    marginTop: spacing.sm,
+    minWidth: 220,
+    textAlign: "center",
   },
   heroSubtext: {
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: "800",
     marginTop: 2,
+    textAlign: "center",
+  },
+  confirmStepsButton: {
+    minHeight: 48,
+    borderRadius: radius.lg,
+    backgroundColor: colors.teal,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.md,
+  },
+  confirmStepsButtonDisabled: {
+    opacity: 0.55,
+  },
+  confirmStepsButtonText: {
+    color: colors.background,
+    fontSize: 15,
+    fontWeight: "900",
   },
   progressTrack: {
     height: 12,
@@ -1019,4 +1072,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: spacing.md,
   },
-});
+})

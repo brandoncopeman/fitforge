@@ -1,10 +1,10 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import * as Haptics from "expo-haptics"
-import { Redirect, Tabs } from "expo-router"
-import { Platform } from "react-native"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import * as Haptics from "expo-haptics";
+import { Redirect, Tabs } from "expo-router";
+import { Platform } from "react-native";
 
-import { colors } from "@/constants/fitforgeTheme"
+import { colors } from "@/constants/fitforgeTheme";
 
 type TabIconName =
   | "home"
@@ -14,23 +14,23 @@ type TabIconName =
   | "stats-chart"
   | "stats-chart-outline"
   | "person"
-  | "person-outline"
+  | "person-outline";
 
 function triggerTabHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.selectionAsync().catch(() => {})
+    Haptics.selectionAsync().catch(() => {});
   }
 }
 
 export default function TabLayout() {
-  const { isSignedIn, isLoaded } = useAuth()
+  const { isSignedIn, isLoaded } = useAuth();
 
   if (!isLoaded) {
-    return null
+    return null;
   }
 
   if (!isSignedIn) {
-    return <Redirect href="/(auth)/sign-in" />
+    return <Redirect href="/(auth)/sign-in" />;
   }
 
   return (
@@ -57,7 +57,7 @@ export default function TabLayout() {
       }}
       screenListeners={{
         tabPress: () => {
-          triggerTabHaptic()
+          triggerTabHaptic();
         },
       }}
     >
@@ -74,19 +74,19 @@ export default function TabLayout() {
           ),
         }}
       />
-<Tabs.Screen
-  name="food"
-  options={{
-    title: "Food",
-    tabBarIcon: ({ color, focused }) => (
-      <Ionicons
-        name={focused ? "nutrition" : "nutrition-outline"}
-        size={22}
-        color={color}
+      <Tabs.Screen
+        name="food"
+        options={{
+          title: "Food",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "nutrition" : "nutrition-outline"}
+              size={22}
+              color={color}
+            />
+          ),
+        }}
       />
-    ),
-  }}
-/>
       <Tabs.Screen
         name="workouts"
         options={{
@@ -107,7 +107,9 @@ export default function TabLayout() {
           title: "Stats",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={(focused ? "stats-chart" : "stats-chart-outline") as TabIconName}
+              name={
+                (focused ? "stats-chart" : "stats-chart-outline") as TabIconName
+              }
               size={22}
               color={color}
             />
@@ -128,7 +130,12 @@ export default function TabLayout() {
           ),
         }}
       />
-
+      <Tabs.Screen
+        name="steps"
+        options={{
+          href: null,
+        }}
+      />
       <Tabs.Screen
         name="explore"
         options={{
@@ -136,5 +143,5 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
-  )
+  );
 }
