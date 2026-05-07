@@ -1,7 +1,7 @@
-import { Ionicons } from "@expo/vector-icons"
-import { useAuth } from "@clerk/clerk-expo"
-import * as Haptics from "expo-haptics"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/clerk-expo";
+import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,12 +15,12 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native"
-import { SafeAreaView } from "react-native-safe-area-context"
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import FitCard from "@/components/FitCard"
-import StatTile from "@/components/StatTile"
-import { colors, radius, spacing } from "@/constants/fitforgeTheme"
+import FitCard from "@/components/FitCard";
+import StatTile from "@/components/StatTile";
+import { colors, radius, spacing } from "@/constants/fitforgeTheme";
 import {
   completeMobileGoal,
   createMobileGoal,
@@ -29,13 +29,13 @@ import {
   getMobileGoals,
   uncompleteMobileGoal,
   updateMobileGoal,
-} from "@/lib/api"
+} from "@/lib/api";
 import {
   GoalColor,
   MobileGoal,
   MobileGoalCompletion,
   MobileGoalPayload,
-} from "@/types/goals"
+} from "@/types/goals";
 
 const GOAL_COLORS: GoalColor[] = [
   "teal",
@@ -44,138 +44,168 @@ const GOAL_COLORS: GoalColor[] = [
   "purple",
   "orange",
   "red",
-]
+];
 
 type GoalFormState = {
-  id?: string
-  name: string
-  emoji: string
-  color: GoalColor
-}
+  id?: string;
+  name: string;
+  emoji: string;
+  color: GoalColor;
+  target_days_per_week: string;
+  emojiTouched: boolean;
+};
 
 function triggerLightHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }
 }
 
 function triggerMediumHaptic() {
   if (Platform.OS !== "web") {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   }
 }
 
 function makeTempId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, "0")
-  const day = `${date.getDate()}`.padStart(2, "0")
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
 
-  return `${year}-${month}-${day}`
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeDate(value: unknown) {
-  if (!value) return getLocalDateString()
+  if (!value) return getLocalDateString();
 
   if (typeof value === "string") {
-    return value.slice(0, 10)
+    return value.slice(0, 10);
   }
 
   if (value instanceof Date) {
-    return getLocalDateString(value)
+    return getLocalDateString(value);
   }
 
-  return String(value).slice(0, 10)
+  return String(value).slice(0, 10);
+}
+function suggestGoalEmoji(name: string) {
+  const text = name.toLowerCase();
+
+  if (text.includes("water") || text.includes("drink")) return "💧";
+  if (text.includes("run") || text.includes("jog")) return "🏃";
+  if (text.includes("walk") || text.includes("steps")) return "🚶";
+  if (text.includes("gym") || text.includes("workout") || text.includes("lift"))
+    return "🏋️";
+  if (text.includes("stretch") || text.includes("mobility")) return "🤸";
+  if (text.includes("read") || text.includes("book")) return "📖";
+  if (text.includes("study") || text.includes("learn")) return "🧠";
+  if (text.includes("sleep") || text.includes("bed")) return "😴";
+  if (text.includes("meditate") || text.includes("mindful")) return "🧘";
+  if (text.includes("protein") || text.includes("food") || text.includes("eat"))
+    return "🥗";
+  if (text.includes("calorie") || text.includes("diet")) return "🍽️";
+  if (text.includes("weight")) return "⚖️";
+  if (text.includes("journal") || text.includes("write")) return "✍️";
+  if (text.includes("clean")) return "🧹";
+  if (text.includes("vitamin") || text.includes("supplement")) return "💊";
+
+  return "🎯";
 }
 
+function clampTargetDays(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 7;
+  return Math.min(7, Math.max(1, Math.round(parsed)));
+}
 function shiftDate(dateString: string, days: number) {
-  const date = new Date(`${normalizeDate(dateString)}T12:00:00`)
-  date.setDate(date.getDate() + days)
-  return getLocalDateString(date)
+  const date = new Date(`${normalizeDate(dateString)}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return getLocalDateString(date);
 }
 
 function formatDateTitle(dateString: string) {
-  const normalized = normalizeDate(dateString)
-  const today = getLocalDateString()
-  const yesterday = shiftDate(today, -1)
-  const tomorrow = shiftDate(today, 1)
+  const normalized = normalizeDate(dateString);
+  const today = getLocalDateString();
+  const yesterday = shiftDate(today, -1);
+  const tomorrow = shiftDate(today, 1);
 
-  if (normalized === today) return "Today"
-  if (normalized === yesterday) return "Yesterday"
-  if (normalized === tomorrow) return "Tomorrow"
+  if (normalized === today) return "Today";
+  if (normalized === yesterday) return "Yesterday";
+  if (normalized === tomorrow) return "Tomorrow";
 
-  const date = new Date(`${normalized}T12:00:00`)
-  if (Number.isNaN(date.getTime())) return normalized
+  const date = new Date(`${normalized}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return normalized;
 
   return date.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
-  })
+  });
 }
 
 function formatMonthTitle(date: Date) {
   return date.toLocaleDateString(undefined, {
     month: "long",
     year: "numeric",
-  })
+  });
 }
 
 function getMonthRange(date: Date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), 1)
-  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0)
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
   return {
     from: getLocalDateString(start),
     to: getLocalDateString(end),
-  }
+  };
 }
 
 function getWeekRange(dateString = getLocalDateString()) {
-  const date = new Date(`${normalizeDate(dateString)}T12:00:00`)
-  const start = new Date(date)
-  start.setDate(date.getDate() - date.getDay())
+  const date = new Date(`${normalizeDate(dateString)}T12:00:00`);
+  const start = new Date(date);
+  start.setDate(date.getDate() - date.getDay());
 
   const days = Array.from({ length: 7 }).map((_, index) => {
-    const day = new Date(start)
-    day.setDate(start.getDate() + index)
-    return getLocalDateString(day)
-  })
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return getLocalDateString(day);
+  });
 
-  return days
+  return days;
 }
 
 function getMonthGrid(selectedMonth: Date) {
-  const year = selectedMonth.getFullYear()
-  const month = selectedMonth.getMonth()
-  const firstDay = new Date(year, month, 1)
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const startOffset = firstDay.getDay()
+  const year = selectedMonth.getFullYear();
+  const month = selectedMonth.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startOffset = firstDay.getDay();
 
-  const cells: ({ key: string; day: number; dateString: string } | null)[] = []
+  const cells: ({ key: string; day: number; dateString: string } | null)[] = [];
 
   for (let i = 0; i < startOffset; i += 1) {
-    cells.push(null)
+    cells.push(null);
   }
 
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(year, month, day)
+    const date = new Date(year, month, day);
 
     cells.push({
       key: getLocalDateString(date),
       day,
       dateString: getLocalDateString(date),
-    })
+    });
   }
 
   while (cells.length % 7 !== 0) {
-    cells.push(null)
+    cells.push(null);
   }
 
-  return cells
+  return cells;
 }
 
 function normalizeGoal(goal: MobileGoal): MobileGoal {
@@ -185,7 +215,8 @@ function normalizeGoal(goal: MobileGoal): MobileGoal {
     color: goal.color || "teal",
     order_index: Number(goal.order_index ?? 0),
     active: Boolean(goal.active ?? true),
-  }
+    target_days_per_week: clampTargetDays(goal.target_days_per_week ?? 7),
+  };
 }
 
 function normalizeCompletion(
@@ -194,7 +225,7 @@ function normalizeCompletion(
   return {
     ...completion,
     completed_date: normalizeDate(completion.completed_date),
-  }
+  };
 }
 
 function emptyForm(): GoalFormState {
@@ -202,7 +233,9 @@ function emptyForm(): GoalFormState {
     name: "",
     emoji: "🎯",
     color: "teal",
-  }
+    target_days_per_week: "7",
+    emojiTouched: false,
+  };
 }
 
 function goalToForm(goal: MobileGoal): GoalFormState {
@@ -211,41 +244,46 @@ function goalToForm(goal: MobileGoal): GoalFormState {
     name: goal.name,
     emoji: goal.emoji || "🎯",
     color: (goal.color as GoalColor) || "teal",
-  }
+    target_days_per_week: String(
+      clampTargetDays(goal.target_days_per_week ?? 7)
+    ),
+    emojiTouched: true,
+  };
 }
 
 function colorValue(color: string) {
-  if (color === "blue") return "#38bdf8"
-  if (color === "green") return "#22c55e"
-  if (color === "purple") return "#a78bfa"
-  if (color === "orange") return "#fb923c"
-  if (color === "red") return "#f87171"
-  return colors.teal
+  if (color === "blue") return "#38bdf8";
+  if (color === "green") return "#22c55e";
+  if (color === "purple") return "#a78bfa";
+  if (color === "orange") return "#fb923c";
+  if (color === "red") return "#f87171";
+  return colors.teal;
 }
 
 function formToPayload(form: GoalFormState): MobileGoalPayload {
   return {
     name: form.name.trim(),
-    emoji: form.emoji.trim() || "🎯",
+    emoji: form.emoji.trim() || suggestGoalEmoji(form.name),
     color: form.color || "teal",
-  }
+    target_days_per_week: clampTargetDays(form.target_days_per_week),
+  };
 }
 
 export default function GoalsScreen() {
-  const { getToken } = useAuth()
+  const { getToken } = useAuth();
 
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString())
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date())
-  const [goals, setGoals] = useState<MobileGoal[]>([])
-  const [completions, setCompletions] = useState<MobileGoalCompletion[]>([])
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+  const [goals, setGoals] = useState<MobileGoal[]>([]);
+  const [completions, setCompletions] = useState<MobileGoalCompletion[]>([]);
 
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<GoalFormState>(() => emptyForm())
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<GoalFormState>(() => emptyForm());
 
   const activeGoals = useMemo(() => {
     return goals
@@ -254,144 +292,177 @@ export default function GoalsScreen() {
         (a, b) =>
           Number(a.order_index ?? 0) - Number(b.order_index ?? 0) ||
           a.name.localeCompare(b.name)
-      )
-  }, [goals])
+      );
+  }, [goals]);
 
   const completionsByDate = useMemo(() => {
-    return completions.reduce<Record<string, Set<string>>>((map, completion) => {
-      const date = normalizeDate(completion.completed_date)
+    return completions.reduce<Record<string, Set<string>>>(
+      (map, completion) => {
+        const date = normalizeDate(completion.completed_date);
 
-      if (!map[date]) {
-        map[date] = new Set()
-      }
+        if (!map[date]) {
+          map[date] = new Set();
+        }
 
-      map[date].add(completion.goal_id)
-      return map
-    }, {})
-  }, [completions])
+        map[date].add(completion.goal_id);
+        return map;
+      },
+      {}
+    );
+  }, [completions]);
 
-  const selectedCompletions = completionsByDate[normalizeDate(selectedDate)]
-  const completedTodayCount = selectedCompletions?.size ?? 0
+  const selectedCompletions = completionsByDate[normalizeDate(selectedDate)];
+  const completedTodayCount = selectedCompletions?.size ?? 0;
 
   const selectedProgress =
-    activeGoals.length > 0 ? completedTodayCount / activeGoals.length : 0
+    activeGoals.length > 0 ? completedTodayCount / activeGoals.length : 0;
 
-  const weekDays = useMemo(() => getWeekRange(selectedDate), [selectedDate])
+  const weekDays = useMemo(() => getWeekRange(selectedDate), [selectedDate]);
 
   const weeklyCountsByGoal = useMemo(() => {
     return activeGoals.reduce<Record<string, number>>((map, goal) => {
       map[goal.id] = weekDays.filter((day) =>
         completionsByDate[day]?.has(goal.id)
-      ).length
+      ).length;
 
-      return map
-    }, {})
-  }, [activeGoals, completionsByDate, weekDays])
+      return map;
+    }, {});
+  }, [activeGoals, completionsByDate, weekDays]);
 
   const monthCells = useMemo(() => {
-    return getMonthGrid(selectedMonth)
-  }, [selectedMonth])
+    return getMonthGrid(selectedMonth);
+  }, [selectedMonth]);
 
   const loadGoals = useCallback(
     async (isRefresh = false) => {
       try {
         if (isRefresh) {
-          setRefreshing(true)
+          setRefreshing(true);
         } else {
-          setLoading(goals.length === 0)
+          setLoading(goals.length === 0);
         }
 
-        setError(null)
+        setError(null);
 
-        const range = getMonthRange(selectedMonth)
+        const range = getMonthRange(selectedMonth);
 
         const [goalRows, completionRows] = await Promise.all([
           getMobileGoals(getToken),
           getMobileGoalCompletions(getToken, range.from, range.to),
-        ])
+        ]);
 
-        setGoals(Array.isArray(goalRows) ? goalRows.map(normalizeGoal) : [])
+        setGoals(Array.isArray(goalRows) ? goalRows.map(normalizeGoal) : []);
         setCompletions(
           Array.isArray(completionRows)
             ? completionRows.map(normalizeCompletion)
             : []
-        )
+        );
       } catch (err) {
-        console.warn("Failed to load goals", err)
-        setError(err instanceof Error ? err.message : "Failed to load goals")
+        console.warn("Failed to load goals", err);
+        setError(err instanceof Error ? err.message : "Failed to load goals");
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        setLoading(false);
+        setRefreshing(false);
       }
     },
     [getToken, goals.length, selectedMonth]
-  )
+  );
 
   useEffect(() => {
-    loadGoals()
+    loadGoals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadGoals(true)
+    loadGoals(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMonth])
+  }, [selectedMonth]);
 
   function changeDate(days: number) {
-    triggerLightHaptic()
-    setSelectedDate((current) => shiftDate(current, days))
+    triggerLightHaptic();
+    setSelectedDate((current) => shiftDate(current, days));
   }
 
   function changeMonth(direction: -1 | 1) {
-    triggerLightHaptic()
+    triggerLightHaptic();
 
     setSelectedMonth((current) => {
-      const next = new Date(current)
-      next.setMonth(next.getMonth() + direction)
-      return next
-    })
+      const next = new Date(current);
+      next.setMonth(next.getMonth() + direction);
+      return next;
+    });
   }
 
   function openCreateGoal() {
-    triggerMediumHaptic()
-    setForm(emptyForm())
-    setShowForm(true)
+    triggerMediumHaptic();
+    setForm(emptyForm());
+    setShowForm(true);
   }
 
   function openEditGoal(goal: MobileGoal) {
-    triggerLightHaptic()
-    setForm(goalToForm(goal))
-    setShowForm(true)
+    triggerLightHaptic();
+    setForm(goalToForm(goal));
+    setShowForm(true);
   }
 
   function closeForm() {
-    setShowForm(false)
-    setSaving(false)
+    setShowForm(false);
+    setSaving(false);
   }
 
   function updateFormField(field: keyof GoalFormState, value: string) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }))
+    setForm((current) => {
+      if (field === "name") {
+        const nextName = value;
+        const suggestedEmoji = suggestGoalEmoji(nextName);
+
+        return {
+          ...current,
+          name: nextName,
+          emoji: current.emojiTouched ? current.emoji : suggestedEmoji,
+        };
+      }
+
+      if (field === "emoji") {
+        return {
+          ...current,
+          emoji: value.slice(0, 4),
+          emojiTouched: true,
+        };
+      }
+
+      if (field === "target_days_per_week") {
+        const cleaned = value.replace(/[^0-9]/g, "");
+
+        return {
+          ...current,
+          target_days_per_week: cleaned,
+        };
+      }
+
+      return {
+        ...current,
+        [field]: value,
+      };
+    });
   }
 
   async function saveGoal() {
-    if (saving) return
+    if (saving) return;
 
-    const payload = formToPayload(form)
+    const payload = formToPayload(form);
 
     if (!payload.name) {
-      setError("Goal name is required.")
-      return
+      setError("Goal name is required.");
+      return;
     }
 
-    triggerMediumHaptic()
-    setSaving(true)
-    setError(null)
+    triggerMediumHaptic();
+    setSaving(true);
+    setError(null);
 
     if (form.id) {
-      const previousGoals = goals
+      const previousGoals = goals;
 
       setGoals((current) =>
         current.map((goal) =>
@@ -402,9 +473,9 @@ export default function GoalsScreen() {
               }
             : goal
         )
-      )
+      );
 
-      closeForm()
+      closeForm();
 
       updateMobileGoal(getToken, form.id, payload)
         .then((updatedGoal) => {
@@ -412,18 +483,20 @@ export default function GoalsScreen() {
             current.map((goal) =>
               goal.id === form.id ? normalizeGoal(updatedGoal) : goal
             )
-          )
+          );
         })
         .catch((err: unknown) => {
-          console.warn("Failed to update goal", err)
-          setGoals(previousGoals)
-          setError(err instanceof Error ? err.message : "Failed to update goal")
-        })
+          console.warn("Failed to update goal", err);
+          setGoals(previousGoals);
+          setError(
+            err instanceof Error ? err.message : "Failed to update goal"
+          );
+        });
 
-      return
+      return;
     }
 
-    const tempId = makeTempId("temp-goal")
+    const tempId = makeTempId("temp-goal");
 
     const optimisticGoal: MobileGoal = {
       id: tempId,
@@ -432,11 +505,12 @@ export default function GoalsScreen() {
       color: payload.color,
       order_index: goals.length,
       active: true,
+      target_days_per_week: payload.target_days_per_week,
       isTemp: true,
-    }
+    };
 
-    setGoals((current) => [...current, optimisticGoal])
-    closeForm()
+    setGoals((current) => [...current, optimisticGoal]);
+    closeForm();
 
     createMobileGoal(getToken, payload)
       .then((createdGoal) => {
@@ -444,24 +518,24 @@ export default function GoalsScreen() {
           current.map((goal) =>
             goal.id === tempId ? normalizeGoal(createdGoal) : goal
           )
-        )
+        );
       })
       .catch((err: unknown) => {
-        console.warn("Failed to create goal", err)
-        setGoals((current) => current.filter((goal) => goal.id !== tempId))
-        setError(err instanceof Error ? err.message : "Failed to create goal")
-      })
+        console.warn("Failed to create goal", err);
+        setGoals((current) => current.filter((goal) => goal.id !== tempId));
+        setError(err instanceof Error ? err.message : "Failed to create goal");
+      });
   }
 
   function toggleGoalCompletion(goal: MobileGoal) {
-    const date = normalizeDate(selectedDate)
-    const currentlyComplete = completionsByDate[date]?.has(goal.id)
+    const date = normalizeDate(selectedDate);
+    const currentlyComplete = completionsByDate[date]?.has(goal.id);
 
-    triggerLightHaptic()
-    setError(null)
+    triggerLightHaptic();
+    setError(null);
 
     if (currentlyComplete) {
-      const previousCompletions = completions
+      const previousCompletions = completions;
 
       setCompletions((current) =>
         current.filter(
@@ -471,17 +545,17 @@ export default function GoalsScreen() {
               normalizeDate(completion.completed_date) === date
             )
         )
-      )
+      );
 
       uncompleteMobileGoal(getToken, goal.id, date).catch((err: unknown) => {
-        console.warn("Failed to uncomplete goal", err)
-        setCompletions(previousCompletions)
+        console.warn("Failed to uncomplete goal", err);
+        setCompletions(previousCompletions);
         setError(
           err instanceof Error ? err.message : "Failed to update completion"
-        )
-      })
+        );
+      });
 
-      return
+      return;
     }
 
     const tempCompletion: MobileGoalCompletion = {
@@ -489,9 +563,9 @@ export default function GoalsScreen() {
       goal_id: goal.id,
       completed_date: date,
       isTemp: true,
-    }
+    };
 
-    setCompletions((current) => [...current, tempCompletion])
+    setCompletions((current) => [...current, tempCompletion]);
 
     completeMobileGoal(getToken, goal.id, date)
       .then((createdCompletion) => {
@@ -501,21 +575,21 @@ export default function GoalsScreen() {
               ? normalizeCompletion(createdCompletion)
               : completion
           )
-        )
+        );
       })
       .catch((err: unknown) => {
-        console.warn("Failed to complete goal", err)
+        console.warn("Failed to complete goal", err);
         setCompletions((current) =>
           current.filter((completion) => completion.id !== tempCompletion.id)
-        )
+        );
         setError(
           err instanceof Error ? err.message : "Failed to update completion"
-        )
-      })
+        );
+      });
   }
 
   function confirmDeleteGoal(goal: MobileGoal) {
-    triggerLightHaptic()
+    triggerLightHaptic();
 
     Alert.alert(
       "Delete goal?",
@@ -531,23 +605,23 @@ export default function GoalsScreen() {
           onPress: () => deleteGoal(goal),
         },
       ]
-    )
+    );
   }
 
   function deleteGoal(goal: MobileGoal) {
-    const previousGoals = goals
+    const previousGoals = goals;
 
-    setGoals((current) => current.filter((item) => item.id !== goal.id))
+    setGoals((current) => current.filter((item) => item.id !== goal.id));
 
     if (goal.isTemp || goal.id.startsWith("temp")) {
-      return
+      return;
     }
 
     deleteMobileGoal(getToken, goal.id).catch((err: unknown) => {
-      console.warn("Failed to delete goal", err)
-      setGoals(previousGoals)
-      setError(err instanceof Error ? err.message : "Failed to delete goal")
-    })
+      console.warn("Failed to delete goal", err);
+      setGoals(previousGoals);
+      setError(err instanceof Error ? err.message : "Failed to delete goal");
+    });
   }
 
   if (loading && goals.length === 0) {
@@ -556,7 +630,7 @@ export default function GoalsScreen() {
         <ActivityIndicator color={colors.teal} size="large" />
         <Text style={styles.loadingText}>Loading goals...</Text>
       </SafeAreaView>
-    )
+    );
   }
 
   return (
@@ -591,7 +665,9 @@ export default function GoalsScreen() {
               <Text style={styles.dateTitle}>
                 {formatDateTitle(selectedDate)}
               </Text>
-              <Text style={styles.dateSubtitle}>{normalizeDate(selectedDate)}</Text>
+              <Text style={styles.dateSubtitle}>
+                {normalizeDate(selectedDate)}
+              </Text>
             </View>
 
             <Pressable onPress={() => changeDate(1)} style={styles.dateButton}>
@@ -637,8 +713,8 @@ export default function GoalsScreen() {
               activeGoals.map((goal) => {
                 const completed = Boolean(
                   completionsByDate[normalizeDate(selectedDate)]?.has(goal.id)
-                )
-                const weeklyCount = weeklyCountsByGoal[goal.id] ?? 0
+                );
+                const weeklyCount = weeklyCountsByGoal[goal.id] ?? 0;
 
                 return (
                   <GoalCard
@@ -650,7 +726,7 @@ export default function GoalsScreen() {
                     onEdit={() => openEditGoal(goal)}
                     onDelete={() => confirmDeleteGoal(goal)}
                   />
-                )
+                );
               })
             ) : (
               <FitCard>
@@ -688,7 +764,8 @@ export default function GoalsScreen() {
             </View>
 
             <Text style={styles.cardText}>
-              Daily intensity is based on completed goals divided by active goals.
+              Daily intensity is based on completed goals divided by active
+              goals.
             </Text>
 
             <View style={styles.weekHeader}>
@@ -702,13 +779,17 @@ export default function GoalsScreen() {
             <View style={styles.calendarGrid}>
               {monthCells.map((cell, index) => {
                 if (!cell) {
-                  return <View key={`empty-${index}`} style={styles.dayCell} />
+                  return <View key={`empty-${index}`} style={styles.dayCell} />;
                 }
 
-                const completeCount = completionsByDate[cell.dateString]?.size ?? 0
+                const completeCount =
+                  completionsByDate[cell.dateString]?.size ?? 0;
                 const ratio =
-                  activeGoals.length > 0 ? completeCount / activeGoals.length : 0
-                const selected = cell.dateString === normalizeDate(selectedDate)
+                  activeGoals.length > 0
+                    ? completeCount / activeGoals.length
+                    : 0;
+                const selected =
+                  cell.dateString === normalizeDate(selectedDate);
 
                 return (
                   <Pressable
@@ -745,7 +826,7 @@ export default function GoalsScreen() {
                       {completeCount}/{activeGoals.length || 0}
                     </Text>
                   </Pressable>
-                )
+                );
               })}
             </View>
           </FitCard>
@@ -756,7 +837,7 @@ export default function GoalsScreen() {
             {activeGoals.length > 0 ? (
               <View style={styles.weeklyList}>
                 {activeGoals.map((goal) => {
-                  const count = weeklyCountsByGoal[goal.id] ?? 0
+                  const count = weeklyCountsByGoal[goal.id] ?? 0;
 
                   return (
                     <View key={goal.id} style={styles.weeklyRow}>
@@ -765,7 +846,10 @@ export default function GoalsScreen() {
                       <View style={styles.weeklyMain}>
                         <View style={styles.weeklyHeader}>
                           <Text style={styles.weeklyName}>{goal.name}</Text>
-                          <Text style={styles.weeklyCount}>{count}/7</Text>
+                          <Text style={styles.weeklyCount}>
+                            {count}/
+                            {clampTargetDays(goal.target_days_per_week ?? 7)}
+                          </Text>{" "}
                         </View>
 
                         <View style={styles.weeklyTrack}>
@@ -773,7 +857,14 @@ export default function GoalsScreen() {
                             style={[
                               styles.weeklyFill,
                               {
-                                width: `${Math.min(100, (count / 7) * 100)}%`,
+                                width: `${Math.min(
+                                  100,
+                                  (count /
+                                    clampTargetDays(
+                                      goal.target_days_per_week ?? 7
+                                    )) *
+                                    100
+                                )}%`,
                                 backgroundColor: colorValue(goal.color),
                               },
                             ]}
@@ -781,7 +872,7 @@ export default function GoalsScreen() {
                         </View>
                       </View>
                     </View>
-                  )
+                  );
                 })}
               </View>
             ) : (
@@ -802,7 +893,7 @@ export default function GoalsScreen() {
         />
       </KeyboardAvoidingView>
     </SafeAreaView>
-  )
+  );
 }
 
 function GoalCard({
@@ -813,14 +904,14 @@ function GoalCard({
   onEdit,
   onDelete,
 }: {
-  goal: MobileGoal
-  completed: boolean
-  weeklyCount: number
-  onToggle: () => void
-  onEdit: () => void
-  onDelete: () => void
+  goal: MobileGoal;
+  completed: boolean;
+  weeklyCount: number;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
-  const accentColor = colorValue(goal.color)
+  const accentColor = colorValue(goal.color);
 
   return (
     <FitCard style={styles.goalCard}>
@@ -830,7 +921,10 @@ function GoalCard({
 
           <View style={styles.goalTextBlock}>
             <Text style={styles.goalName}>{goal.name}</Text>
-            <Text style={styles.goalMeta}>{weeklyCount}/7 this week</Text>
+            <Text style={styles.goalMeta}>
+              {weeklyCount}/{clampTargetDays(goal.target_days_per_week ?? 7)}{" "}
+              this week
+            </Text>{" "}
           </View>
         </View>
 
@@ -862,91 +956,119 @@ function GoalCard({
         </Pressable>
       </View>
     </FitCard>
-  )
+  );
 }
 
 function GoalFormModal({
-  visible,
-  form,
-  saving,
-  onClose,
-  onChange,
-  onSave,
-}: {
-  visible: boolean
-  form: GoalFormState
-  saving: boolean
-  onClose: () => void
-  onChange: (field: keyof GoalFormState, value: string) => void
-  onSave: () => void
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {form.id ? "Edit Goal" : "Add Goal"}
-            </Text>
-
-            <Pressable onPress={onClose} style={styles.modalCloseButton}>
-              <Ionicons name="close" size={20} color={colors.textMuted} />
+    visible,
+    form,
+    saving,
+    onClose,
+    onChange,
+    onSave,
+  }: {
+    visible: boolean
+    form: GoalFormState
+    saving: boolean
+    onClose: () => void
+    onChange: (field: keyof GoalFormState, value: string) => void
+    onSave: () => void
+  }) {
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {form.id ? "Edit Goal" : "Add Goal"}
+              </Text>
+  
+              <Pressable onPress={onClose} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </Pressable>
+            </View>
+  
+            <TextInput
+              value={form.name}
+              onChangeText={(value) => onChange("name", value)}
+              placeholder="Goal name"
+              placeholderTextColor={colors.textFaint}
+              style={styles.nameInput}
+            />
+  
+            <TextInput
+              value={form.emoji}
+              onChangeText={(value) => onChange("emoji", value)}
+              placeholder="Emoji"
+              placeholderTextColor={colors.textFaint}
+              style={styles.emojiInput}
+            />
+  
+            <Text style={styles.modalLabel}>Days per week</Text>
+  
+            <View style={styles.daysSelector}>
+              {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+                const active = String(day) === form.target_days_per_week
+  
+                return (
+                  <Pressable
+                    key={day}
+                    onPress={() => onChange("target_days_per_week", String(day))}
+                    style={[
+                      styles.dayOption,
+                      active ? styles.dayOptionActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dayOptionText,
+                        active ? styles.dayOptionTextActive : null,
+                      ]}
+                    >
+                      {day}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+  
+            <Text style={styles.modalLabel}>Color</Text>
+  
+            <View style={styles.colorRow}>
+              {GOAL_COLORS.map((color) => (
+                <Pressable
+                  key={color}
+                  onPress={() => onChange("color", color)}
+                  style={[
+                    styles.colorDot,
+                    {
+                      backgroundColor: colorValue(color),
+                      borderColor:
+                        form.color === color ? colors.text : "transparent",
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+  
+            <Pressable
+              onPress={onSave}
+              disabled={saving}
+              style={[styles.modalSaveButton, saving && styles.disabledButton]}
+            >
+              {saving ? (
+                <ActivityIndicator color={colors.background} />
+              ) : (
+                <Text style={styles.modalSaveText}>
+                  {form.id ? "Save Goal" : "Create Goal"}
+                </Text>
+              )}
             </Pressable>
           </View>
-
-          <TextInput
-            value={form.name}
-            onChangeText={(value) => onChange("name", value)}
-            placeholder="Goal name"
-            placeholderTextColor={colors.textFaint}
-            style={styles.nameInput}
-          />
-
-          <TextInput
-            value={form.emoji}
-            onChangeText={(value) => onChange("emoji", value.slice(0, 4))}
-            placeholder="Emoji"
-            placeholderTextColor={colors.textFaint}
-            style={styles.emojiInput}
-          />
-
-          <Text style={styles.modalLabel}>Color</Text>
-
-          <View style={styles.colorRow}>
-            {GOAL_COLORS.map((color) => (
-              <Pressable
-                key={color}
-                onPress={() => onChange("color", color)}
-                style={[
-                  styles.colorDot,
-                  {
-                    backgroundColor: colorValue(color),
-                    borderColor:
-                      form.color === color ? colors.text : "transparent",
-                  },
-                ]}
-              />
-            ))}
-          </View>
-
-          <Pressable
-            onPress={onSave}
-            disabled={saving}
-            style={[styles.modalSaveButton, saving && styles.disabledButton]}
-          >
-            {saving ? (
-              <ActivityIndicator color={colors.background} />
-            ) : (
-              <Text style={styles.modalSaveText}>
-                {form.id ? "Save Goal" : "Create Goal"}
-              </Text>
-            )}
-          </Pressable>
         </View>
-      </View>
-    </Modal>
-  )
-}
+      </Modal>
+    )
+  }
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -1338,4 +1460,31 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.55,
   },
-})
+  daysSelector: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  dayOption: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceLight,
+    borderColor: colors.border,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayOptionActive: {
+    backgroundColor: colors.teal,
+    borderColor: colors.teal,
+  },
+  dayOptionText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  dayOptionTextActive: {
+    color: colors.background,
+  },
+});

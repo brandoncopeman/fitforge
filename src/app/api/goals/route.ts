@@ -9,6 +9,12 @@ function cleanText(value: unknown, fallback: string) {
   return trimmed.length > 0 ? trimmed : fallback
 }
 
+function clampTargetDays(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 7
+  return Math.min(7, Math.max(1, Math.round(parsed)))
+}
+
 export async function GET() {
   const { userId } = await auth()
 
@@ -39,6 +45,7 @@ export async function POST(req: Request) {
   const name = cleanText(body.name, "")
   const emoji = cleanText(body.emoji, "🎯")
   const color = cleanText(body.color, "teal")
+  const targetDaysPerWeek = clampTargetDays(body.target_days_per_week ?? 7)
 
   if (!name) {
     return NextResponse.json({ error: "Goal name is required" }, { status: 400 })
@@ -60,7 +67,8 @@ export async function POST(req: Request) {
       emoji,
       color,
       order_index,
-      active
+      active,
+      target_days_per_week
     )
     VALUES (
       ${userId},
@@ -68,7 +76,8 @@ export async function POST(req: Request) {
       ${emoji},
       ${color},
       ${order},
-      true
+      true,
+      ${targetDaysPerWeek}
     )
     RETURNING *
   `
