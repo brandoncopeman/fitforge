@@ -374,7 +374,7 @@ export default function HomeScreen() {
 
         <View style={styles.tileRow}>
           <Pressable
-            onPress={() => router.push("/(tabs)/profile")}
+            onPress={() => router.push("/(tabs)/weight")}
             style={({ pressed }) => [
               styles.tilePressable,
               pressed ? styles.pressed : null,
@@ -390,7 +390,7 @@ export default function HomeScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push("/(tabs)/weight")}
+            onPress={() => router.push("/(tabs)/stats")}
             style={({ pressed }) => [
               styles.tilePressable,
               pressed ? styles.pressed : null,
